@@ -12,7 +12,6 @@ from guild import *
 from mbbank import *
 import aiohttp
 import locale
-server.b()
 
 
 intents = discord.Intents.default()
