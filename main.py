@@ -12,7 +12,6 @@ from guild import *
 from mbbank import *
 import aiohttp
 import locale
-server.b()
 
 
 intents = discord.Intents.default()
@@ -100,3 +99,4 @@ async def getTransMb(guild):
       INFO=await login(USERNAME,PASSWORD)
       pass
 client.run(os.environ.get('botToken'))
+ 
