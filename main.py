@@ -45,7 +45,7 @@ def correctSingleQuoteJSON(s):
     
     return rstr
 
-INFO=False
+INFO=False 
 @client.event
 async def on_ready():
     global INFO
