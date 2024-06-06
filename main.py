@@ -55,14 +55,15 @@ async def on_ready():
       await client.close() 
       print('Client closed')
       exit()
-    except:
-      server.b()  
-      guild = client.get_guild(GUILDID)
-      rs=await login(USERNAME,PASSWORD)
-      if rs:
-        INFO=rs
-      if not getTransMb.is_running():
-        getTransMb.start(guild)
+    except Exception as error:
+      if 'No connection could be made because the target machine actively refused it' in str(error):
+        server.b()  
+        guild = client.get_guild(GUILDID)
+        rs=await login(USERNAME,PASSWORD)
+        if rs:
+          INFO=rs
+        if not getTransMb.is_running():
+          getTransMb.start(guild)
 @tasks.loop(seconds=1)
 async def getTransMb(guild): 
   global INFO
