@@ -1,5 +1,5 @@
 import asyncio
-import os
+import os,sys
 import re,json
 import discord
 from discord.ext import commands, tasks
@@ -52,9 +52,8 @@ async def on_ready():
     try:
       req=requests.get('http://localhost:8888')
       print(req.status_code)
-      await client.close() 
       print('Client closed')
-      exit()
+      sys.exit('Exited')
     except Exception as error:
       if 'No connection could be made because the target machine actively refused it' in str(error):
         server.b()  
