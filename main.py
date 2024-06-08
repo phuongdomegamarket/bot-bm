@@ -73,24 +73,25 @@ async def getTransMb(guild):
       threads=basic['mbCh'].threads+[thread async for thread in basic['mbCh'].archived_threads()]
       if rs:
         for item in rs:
-          applied_tags=[]
-          if item['pos'] not in str(threads):
-            tags=basic['mbCh'].available_tags
-            st=''
-            if item['bankName']=='':
-              for tag in tags:
-                if 'in' in tag.name.lower() or 'chuyển đến' in tag.name.lower():
-                  applied_tags.append(tag)
-            elif item['bankName']!='':
-              for tag in tags:
-                if 'out' in tag.name.lower() or 'chuyển đi' in tag.name.lower():
-                  applied_tags.append(tag)
-              st+='\nTới ngân hàng: **'+item['bankName']+'**\nSố tài khoản: **'+item['benAccountNo']+'**\nChủ tài khoản: **'+item['benAccountName']+'**'
-            allowed_mentions = discord.AllowedMentions(everyone = True)
-            amount=item['creditAmount'] if item['bankName']=='' else item['debitAmount']
-            amount=[f'{cur:,}' for cur in [int(amount)]][0]
-            balance=[f'{cur:,}' for cur in [int(item['availableBalance'])]][0]
-            thread=await basic['mbCh'].create_thread(name=('+ ' if item['bankName']=='' else '- ')+amount+' '+item['currency']+'/ '+item['pos'],content='\nSố tiền: **'+amount+' '+item['currency']+'**\nNội dung: **'+item['description']+'**\nThời điểm: **'+item['transactionDate'].split(' ')[1]+'** ngày **'+item['transactionDate'].split(' ')[0]+'**'+st+'\nSố dư hiện tại: **'+balance+' '+item['currency']+'**\n@everyone',applied_tags =applied_tags )
+            applied_tags=[]
+            if item['pos'] not in str(threads):
+                tags=basic['mbCh'].available_tags
+                st=''
+                if item['creditAmount']!='0':
+                  for tag in tags:
+                    if 'in' in tag.name.lower() or 'chuyển đến' in tag.name.lower():
+                      applied_tags.append(tag)
+                elif item['debitAmount']!='0':
+                  for tag in tags:
+                    if 'out' in tag.name.lower() or 'chuyển đi' in tag.name.lower():
+                      applied_tags.append(tag)
+                  st+='\nTới ngân hàng: **'+item['bankName']+'**\nSố tài khoản: **'+item['benAccountNo']+'**\nChủ tài khoản: **'+item['benAccountName']+'**'
+                allowed_mentions = discord.AllowedMentions(everyone = True)
+                amount=item['creditAmount'] if item['creditAmount']!='0' else item['debitAmount']
+                amount=[f'{cur:,}' for cur in [int(amount)]][0]
+                balance=[f'{cur:,}' for cur in [int(item['availableBalance'])]][0]
+                thread=await basic['mbCh'].create_thread(name=('+ ' if item['creditAmount']!='0' else '- ')+amount+' '+item['currency']+'/ '+item['pos'],content='\nSố tiền: **'+amount+' '+item['currency']+'**\nNội dung: **'+item['description']+'**\nThời điểm: **'+item['transactionDate'].split(' ')[1]+'** ngày **'+item['transactionDate'].split(' ')[0]+'**'+st+'\nSố dư hiện tại: **'+balance+' '+item['currency']+'**\n@everyone',applied_tags =applied_tags )
+
       elif rs!=None:
         INFO=await login(USERNAME,PASSWORD) 
     except Exception as error:
