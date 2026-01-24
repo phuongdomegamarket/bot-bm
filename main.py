@@ -105,7 +105,7 @@ async def getTransMb(guild):
 
                 # Define date range: last 30 days
                 to_date = datetime.now()
-                from_date = to_date - timedelta(days=30)
+                from_date = to_date - timedelta(days=7)
 
                 history = mb.getTransactionAccountHistory(
                     accountNo=account_number, from_date=from_date, to_date=to_date
@@ -114,12 +114,6 @@ async def getTransMb(guild):
                 if not history.transactionHistoryList:
                     print("No transactions found in the last 30 days.")
                 else:
-                    print(
-                        f"\nTransaction History ({from_date.date()} to {to_date.date()}):"
-                    )
-                    print("-" * 80)
-                    print(f"{'Date':<20} | {'Amount':<15} | {'Description'}")
-                    print("-" * 80)
                     for transaction in history.transactionHistoryList:
                         refNo = transaction.refNo
                         currency = transaction.currency
