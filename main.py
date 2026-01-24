@@ -27,7 +27,7 @@ USERNAME = os.environ.get("username")
 PASSWORD = os.environ.get("password")
 RESULT = None
 processed_thread = set()
-mb
+mb = None
 
 
 def correctSingleQuoteJSON(s):
