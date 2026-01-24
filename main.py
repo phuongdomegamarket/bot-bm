@@ -133,7 +133,7 @@ async def getTransMb(guild):
                         transactionAt = transaction.transactionDate
                         timestamp = str(
                             datetime.strptime(
-                                transactionAt, "%Y-%m-%d %H:%M:%S"
+                                transactionAt, "%d/%m/%Y %H:%M:%S"
                             ).timestamp()
                             * 1000
                         ).split(".")[0]
@@ -183,9 +183,9 @@ async def getTransMb(guild):
                                 + "**\nNội dung: **"
                                 + description
                                 + "**\nThời điểm: **"
-                                + transaction["transactionDate"].split(" ")[1]
+                                + transaction.transactionDate.split(" ")[1]
                                 + "** ngày **"
-                                + transaction["transactionDate"].split(" ")[0]
+                                + transaction.transactionDate.split(" ")[0]
                                 + "**"
                                 + st
                                 + "\nSố dư hiện tại: **"
