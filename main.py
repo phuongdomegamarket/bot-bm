@@ -66,7 +66,6 @@ async def on_ready():
         server.b()
         for guild in client.guilds:
             if guild.name.lower() == "phượng đỏ mega":
-                viettelPayCh = (await getBasic(guild))["mb"]
                 RESULT = await getBasic(guild)
                 mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
                 if not getTransMb.is_running():
