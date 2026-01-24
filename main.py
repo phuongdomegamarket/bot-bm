@@ -104,8 +104,8 @@ async def getTransMb(guild):
                 )
 
                 # Define date range: last 30 days
-                to_date = datetime.datetime.now()
-                from_date = to_date - datetime.timedelta(days=30)
+                to_date = datetime.now()
+                from_date = to_date - timedelta(days=30)
 
                 history = mb.getTransactionAccountHistory(
                     accountNo=account_number, from_date=from_date, to_date=to_date

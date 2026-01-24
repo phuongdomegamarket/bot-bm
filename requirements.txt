@@ -8,3 +8,4 @@ msgpack
 flask
 httpx
 mbbank-lib
+dotenv
