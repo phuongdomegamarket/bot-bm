@@ -94,7 +94,7 @@ async def getTransMb(guild):
             # Use the first account for history
             main_account = None
             for acc in balance_info.acct_list:
-                if acc == ACCOUNT_NO:
+                if acc.acctNo == ACCOUNT_NO:
                     main_account = acc
                     break
             if main_account:
