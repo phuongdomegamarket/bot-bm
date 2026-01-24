@@ -5,10 +5,10 @@ async def getBasic(guild):
     for category in guild.categories:
         if "banking transactions" in category.name.lower():
             for channel in category.channels:
-                if "mb" in channel.name:
+                if "mb" == channel.name:
                     mbCh = channel
-                elif "tcb" in channel.name:
+                elif "tcb" == channel.name:
                     tcbCh = channel
-                elif "acb" in channel.name:
+                elif "acb" == channel.name:
                     acbCh = channel
     return {"mbCh": mbCh, "acbCh": acbCh, "tcbCh": tcbCh}
