@@ -137,9 +137,7 @@ async def getTransMb(guild):
                             ).timestamp()
                             * 1000
                         ).split(".")[0]
-                        threadName = (
-                            f"{sign} {amount:,} {currency}/ {timestamp}/ {refNo}"
-                        )
+                        threadName = f"{sign} {amount:,} {currency}/ {timestamp}/ {refNo}/ {account_number}"
                         if threadName not in str(threads) and threadName not in str(
                             processed_thread
                         ):
