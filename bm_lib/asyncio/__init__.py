@@ -8,16 +8,16 @@ import typing
 
 import aiohttp
 
-from bm.capcha_ocr import CapchaProcessing
-from bm.errors import (
+from bm_lib.capcha_ocr import CapchaProcessing
+from bm_lib.errors import (
     BankNotFoundError,
     CapchaError,
     CryptoVerifyError,
     MBBankAPIError,
     MBBankError,
 )
-from bm.main import MBBank, TransferContext, headers_default
-from bm.modals import (
+from bm_lib.main import MBBank, TransferContext, headers_default
+from bm_lib.modals import (
     AccountByPhoneResponseModal,
     AccountNameResponseModal,
     ATMAccountNameResponseModal,
@@ -42,7 +42,7 @@ from bm.modals import (
     TransferResponseModal,
     UserInfoResponseModal,
 )
-from bm.wasm_helper import wasm_encrypt
+from bm_lib.wasm_helper import wasm_encrypt
 
 pool = (
     concurrent.futures.ThreadPoolExecutor()
