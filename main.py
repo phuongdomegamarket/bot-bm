@@ -169,6 +169,4 @@ async def getTransMb(guild):
             pass
 
 
-client.run(
-    "MTIzNjk2NTY5NzU2OTk0Nzc1OA.GIk4b3.iYKv1XuSLIAPjIoJW5zWNDoVwHuzuAfZIl4Le4"
-)  # os.environ.get('botToken'))
+client.run(os.environ.get("botToken"))
