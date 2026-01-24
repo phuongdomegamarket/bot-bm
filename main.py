@@ -137,10 +137,9 @@ async def getTransMb(guild):
                             ).timestamp()
                             * 1000
                         ).split(".")[0]
-                        threadName = f"{sign} {amount}{currency}/ {timestamp}/ {refNo}"
-                        if (
-                            threadName not in threads
-                            and threadName not in processed_thread
+                        threadName = f"{sign} {amount} {currency}/ {timestamp}/ {refNo}"
+                        if threadName not in str(threads) and threadName not in str(
+                            processed_thread
                         ):
                             tags = basic["mbCh"].available_tags
                             st = ""
