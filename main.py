@@ -26,7 +26,7 @@ USERNAMES = []
 USERNAME = os.environ.get("username")
 PASSWORD = os.environ.get("password")
 RESULT = None
-processed_thread=set()
+processed_thread = set()
 mb
 
 
@@ -55,7 +55,7 @@ INFO = False
 
 @client.event
 async def on_ready():
-    global INFO,mb
+    global INFO, mb
     try:
         req = requests.get("http://localhost:8888")
         print(req.status_code)
@@ -75,7 +75,7 @@ async def on_ready():
 
 @tasks.loop(seconds=1)
 async def getTransMb(guild):
-    global processed_thread,mb
+    global processed_thread, mb
     print("getTransMb is running")
     if mb:
         try:
@@ -115,21 +115,27 @@ async def getTransMb(guild):
                 print(f"{'Date':<20} | {'Amount':<15} | {'Description'}")
                 print("-" * 80)
                 for transaction in history.transactionHistoryList:
-                    refNo=transaction.refNo
-                    currency=transaction.currency
-                    amount=transaction.creditAmount if transaction.creditAmount!='0' else transaction.debitAmount
-                    sign='+' if transaction.creditAmount!='0' else '-'
-                    description=transaction.description
-                    transactionAt=transaction.transactionDate
+                    refNo = transaction.refNo
+                    currency = transaction.currency
+                    amount = (
+                        transaction.creditAmount
+                        if transaction.creditAmount != "0"
+                        else transaction.debitAmount
+                    )
+                    sign = "+" if transaction.creditAmount != "0" else "-"
+                    description = transaction.description
+                    transactionAt = transaction.transactionDate
                     timestamp = str(
-                        datetime.strptime(transactionAt, "%Y-%m-%d %H:%M:%S").timestamp()
+                        datetime.strptime(
+                            transactionAt, "%Y-%m-%d %H:%M:%S"
+                        ).timestamp()
                         * 1000
                     ).split(".")[0]
-                    threadName=f"{sign} {amount}{currency}/ {timestamp}/ {refNo}"
-                    if threadName not in threads && threadName not in processed_thread:
+                    threadName = f"{sign} {amount}{currency}/ {timestamp}/ {refNo}"
+                    if threadName not in threads and threadName not in processed_thread:
                         tags = basic["mbCh"].available_tags
                         st = ""
-                        if sign=='+':
+                        if sign == "+":
                             for tag in tags:
                                 if (
                                     "in" in tag.name.lower()
@@ -186,5 +192,6 @@ async def getTransMb(guild):
             pass
     else:
         mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
+
 
 client.run(os.environ.get("botToken"))
