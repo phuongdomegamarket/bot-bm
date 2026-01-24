@@ -13,8 +13,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from discord.utils import get
 
+import bm_lib
 import server
-from bm import *
 from guild import *
 
 intents = discord.Intents.default()
@@ -23,10 +23,11 @@ tree = app_commands.CommandTree(client)
 HEADERS = []
 THREADS = []
 USERNAMES = []
-GUILDID = 1236962671824211998
-USERNAME = "anonymou"  # os.environ.get('username')
-PASSWORD = "10ee0965ebb8fc0f4a659571be330470"  # os.environ.get('password')
+USERNAME = os.environ.get("username")
+PASSWORD = os.environ.get("password")
 RESULT = None
+processed_thread=set()
+mb
 
 
 def correctSingleQuoteJSON(s):
@@ -54,7 +55,7 @@ INFO = False
 
 @client.event
 async def on_ready():
-    global INFO
+    global INFO,mb
     try:
         req = requests.get("http://localhost:8888")
         print(req.status_code)
@@ -63,53 +64,79 @@ async def on_ready():
     except Exception as error:
         print(error)
         server.b()
-        guild = client.get_guild(GUILDID)
-        rs = await login(USERNAME, PASSWORD)
-        if rs:
-            INFO = rs
-        if not getTransMb.is_running():
-            getTransMb.start(guild)
+        for guild in client.guilds:
+            if guild.name.lower() == "phượng đỏ mega":
+                viettelPayCh = (await getBasic(guild))["mb"]
+                RESULT = await getBasic(guild)
+                mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
+                if not getTransMb.is_running():
+                    getTransMb.start(guild)
 
 
 @tasks.loop(seconds=1)
 async def getTransMb(guild):
-    global INFO
+    global processed_thread,mb
     print("getTransMb is running")
-    if INFO:
+    if mb:
         try:
-            rs = await getTransaction(
-                INFO["headers"],
-                INFO["deviceId"],
-                INFO["sessionId"],
-                INFO["userId"],
-                INFO["cards"],
-            )
             basic = await getBasic(guild)
             threads = basic["mbCh"].threads + [
                 thread async for thread in basic["mbCh"].archived_threads()
             ]
-            if rs:
-                for item in rs:
-                    iss = (
-                        item["creditAmount"]
-                        if item["creditAmount"] != "0"
-                        else item["debitAmount"]
-                    )
-                    print(
-                        item["description"], iss, [f"{cur:,}" for cur in [int(iss)]][0]
-                    )
-                    applied_tags = []
-                    if item["pos"] not in str(threads):
+            applied_tags = []
+            # Get the main account balance and info to find the account number
+            balance_info = mb.getBalance()
+            if not balance_info.acct_list:
+                print("No accounts found.")
+                return
+
+            # Use the first account for history
+            main_account = balance_info.acct_list[0]
+            account_number = main_account.acctNo
+            print(
+                f"Fetching history for account: {account_number} ({main_account.acctAlias})"
+            )
+
+            # Define date range: last 30 days
+            to_date = datetime.datetime.now()
+            from_date = to_date - datetime.timedelta(days=30)
+
+            history = mb.getTransactionAccountHistory(
+                accountNo=account_number, from_date=from_date, to_date=to_date
+            )
+
+            if not history.transactionHistoryList:
+                print("No transactions found in the last 30 days.")
+            else:
+                print(
+                    f"\nTransaction History ({from_date.date()} to {to_date.date()}):"
+                )
+                print("-" * 80)
+                print(f"{'Date':<20} | {'Amount':<15} | {'Description'}")
+                print("-" * 80)
+                for transaction in history.transactionHistoryList:
+                    refNo=transaction.refNo
+                    currency=transaction.currency
+                    amount=transaction.creditAmount if transaction.creditAmount!='0' else transaction.debitAmount
+                    sign='+' if transaction.creditAmount!='0' else '-'
+                    description=transaction.description
+                    transactionAt=transaction.transactionDate
+                    timestamp = str(
+                        datetime.strptime(transactionAt, "%Y-%m-%d %H:%M:%S").timestamp()
+                        * 1000
+                    ).split(".")[0]
+                    threadName=f"{sign} {amount}{currency}/ {timestamp}/ {refNo}"
+                    if threadName not in threads && threadName not in processed_thread:
                         tags = basic["mbCh"].available_tags
                         st = ""
-                        if item["creditAmount"] != "0":
+                        if sign=='+':
                             for tag in tags:
                                 if (
                                     "in" in tag.name.lower()
                                     or "chuyển đến" in tag.name.lower()
                                 ):
                                     applied_tags.append(tag)
-                        elif item["debitAmount"] != "0":
+                        else:
                             for tag in tags:
                                 if (
                                     "out" in tag.name.lower()
@@ -118,55 +145,46 @@ async def getTransMb(guild):
                                     applied_tags.append(tag)
                             st += (
                                 "\nTới ngân hàng: **"
-                                + item["bankName"]
+                                + transaction.bankName
                                 + "**\nSố tài khoản: **"
-                                + item["benAccountNo"]
+                                + transaction.benAccountNo
                                 + "**\nChủ tài khoản: **"
-                                + item["benAccountName"]
+                                + transaction.benAccountName
                                 + "**"
                             )
                         allowed_mentions = discord.AllowedMentions(everyone=True)
-                        amount = (
-                            item["creditAmount"]
-                            if item["creditAmount"] != "0"
-                            else item["debitAmount"]
-                        )
+
                         amount = [f"{cur:,}" for cur in [int(amount)]][0]
                         balance = [
-                            f"{cur:,}" for cur in [int(item["availableBalance"])]
+                            f"{cur:,}" for cur in [int(transaction.availableBalance)]
                         ][0]
                         thread = await basic["mbCh"].create_thread(
-                            name=("+ " if item["creditAmount"] != "0" else "- ")
-                            + amount
-                            + " "
-                            + item["currency"]
-                            + "/ "
-                            + item["pos"],
+                            name=threadName,
                             content="\nSố tiền: **"
                             + amount
                             + " "
-                            + item["currency"]
+                            + currency
                             + "**\nNội dung: **"
-                            + item["description"]
+                            + description
                             + "**\nThời điểm: **"
-                            + item["transactionDate"].split(" ")[1]
+                            + transaction["transactionDate"].split(" ")[1]
                             + "** ngày **"
-                            + item["transactionDate"].split(" ")[0]
+                            + transaction["transactionDate"].split(" ")[0]
                             + "**"
                             + st
                             + "\nSố dư hiện tại: **"
                             + balance
                             + " "
-                            + item["currency"]
+                            + currency
                             + "**\n@everyone",
                             applied_tags=applied_tags,
                         )
-            elif rs != None:
-                INFO = await login(USERNAME, PASSWORD)
+                        if thread:
+                            processed_thread.add(threadName)
         except Exception as error:
-            print(error)
-            INFO = await login(USERNAME, PASSWORD)
+            mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
             pass
-
+    else:
+        mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
 
 client.run(os.environ.get("botToken"))

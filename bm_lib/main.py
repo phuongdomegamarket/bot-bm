@@ -42,19 +42,9 @@ from .modals import (
 from .wasm_helper import wasm_encrypt
 
 headers_default = {
-    "Cache-Control": "max-age=0",
-    "Accept": "application/json, text/plain, */*",
     "Authorization": "Basic RU1CUkVUQUlMV0VCOlNEMjM0ZGZnMzQlI0BGR0AzNHNmc2RmNDU4NDNm",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    "Origin": "https://online.mbbank.com.vn",
-    "Referer": "https://online.mbbank.com.vn/pl/login?returnUrl=%2F",
     "App": "MB_WEB",
-    "Sec-Ch-Ua": '"Not.A/Brand";v="8", "Chromium";v="134", "Google Chrome";v="134"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
+    "Content-Type": "application/json; charset=utf-8",
 }
 
 
@@ -176,9 +166,6 @@ class MBBank:
             "deviceIdCommon": self.deviceIdCommon,
         }
         headers = headers_default.copy()
-        headers["X-Request-Id"] = rid
-        headers["Deviceid"] = self.deviceIdCommon
-        headers["Refno"] = rid
         with requests.post(
             "https://online.mbbank.com.vn/api/retail-internetbankingms/getCaptchaImage",
             headers=headers,
