@@ -137,7 +137,9 @@ async def getTransMb(guild):
                             ).timestamp()
                             * 1000
                         ).split(".")[0]
-                        threadName = f"{sign} {amount} {currency}/ {timestamp}/ {refNo}"
+                        threadName = (
+                            f"{sign} {amount:,} {currency}/ {timestamp}/ {refNo}"
+                        )
                         if threadName not in str(threads) and threadName not in str(
                             processed_thread
                         ):
@@ -168,7 +170,7 @@ async def getTransMb(guild):
                                 )
                             allowed_mentions = discord.AllowedMentions(everyone=True)
 
-                            amount = [f"{cur:,}" for cur in [int(amount)]][0]
+                            amount = f"{amount:,}"
                             balance = [
                                 f"{cur:,}"
                                 for cur in [int(transaction.availableBalance)]
