@@ -9,3 +9,6 @@ flask
 httpx
 mbbank-lib
 dotenv
+streamlit
+mb_capcha_ocr
+dotenv
