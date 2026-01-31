@@ -228,6 +228,7 @@ def myStyle(log_queue):
                                     if thread:
                                         processed_thread.add(threadName)
             except Exception as error:
+                log_queue.put("error", error)
                 mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
                 pass
         else:
