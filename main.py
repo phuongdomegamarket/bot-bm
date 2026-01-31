@@ -251,6 +251,28 @@ def initialize_heavy_stuff():
         print(
             "Heavy initialization running..."
         )  # bạn sẽ thấy log này chỉ 1 lần trong console/cloud log
+        with st.status("Processing...", expanded=True) as status:
+            placeholder = st.empty()
+            logs = []
+            while thread.is_alive() or not st.session_state.log_queue.empty():
+                try:
+                    level, message = st.session_state.log_queue.get_nowait()
+                    logs.append((level, message))
+
+                    with placeholder.container():
+                        for lvl, msg in logs:
+                            if lvl == "info":
+                                st.write(msg)
+                            elif lvl == "success":
+                                st.success(msg)
+                            elif lvl == "error":
+                                st.error(msg)
+
+                    time.sleep(0.2)
+                except queue.Empty:
+                    time.sleep(0.3)
+
+            status.update(label="Hoàn thành!", state="complete", expanded=False)
         return {
             "model": "loaded_successfully",
             "timestamp": time.time(),
@@ -263,28 +285,7 @@ st.title("my style")
 
 # Dòng này đảm bảo: chạy 1 lần duy nhất, mọi user đều dùng chung kết quả
 result = initialize_heavy_stuff()
-with st.status("Processing...", expanded=True) as status:
-    placeholder = st.empty()
-    logs = []
-    while thread.is_alive() or not st.session_state.log_queue.empty():
-        try:
-            level, message = st.session_state.log_queue.get_nowait()
-            logs.append((level, message))
 
-            with placeholder.container():
-                for lvl, msg in logs:
-                    if lvl == "info":
-                        st.write(msg)
-                    elif lvl == "success":
-                        st.success(msg)
-                    elif lvl == "error":
-                        st.error(msg)
-
-            time.sleep(0.2)
-        except queue.Empty:
-            time.sleep(0.3)
-
-    status.update(label="Hoàn thành!", state="complete", expanded=False)
 st.success("The system is ready!")
 st.write("Result:")
 st.json(result)
