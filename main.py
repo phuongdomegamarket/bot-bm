@@ -33,6 +33,7 @@ if "logs" not in st.session_state:
 
 if "task_running" not in st.session_state:
     st.session_state["task_running"] = False
+processed_thread = set()
 
 
 def myStyle(log_queue):
@@ -48,7 +49,7 @@ def myStyle(log_queue):
     ACCOUNT_NO = os.environ.get("account_no")
     MAIN_CHANNEL = os.environ.get("main_channel")
     RESULT = None
-    processed_thread = set()
+
     mb = None
 
     def correctSingleQuoteJSON(s):
