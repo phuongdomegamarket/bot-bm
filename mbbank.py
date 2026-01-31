@@ -100,7 +100,6 @@ async def getTransaction(headers,deviceId,sessionId,userId,cards):
   async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar()) as session:
     async with session.post(url,headers=headers,json=data) as res:
       js=await res.json()
-      print(js)
       if res.status<400 and js['result']['ok']==True:
         return js['transactionHistoryList']
       return False
