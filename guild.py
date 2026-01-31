@@ -11,4 +11,6 @@ async def getBasic(guild):
                     tcbCh = channel
                 elif "acb" == channel.name:
                     acbCh = channel
-    return {"mbCh": mbCh, "acbCh": acbCh, "tcbCh": tcbCh}
+                elif "vcb" == channel.name:
+                    vcbCh = channel
+    return {"mbCh": mbCh, "acbCh": acbCh, "tcbCh": tcbCh, "vcbCh": vcbCh}
