@@ -2,6 +2,7 @@ import asyncio
 import json
 import locale
 import os
+import queue
 import random
 import re
 import subprocess
@@ -24,9 +25,12 @@ import server
 from guild import *
 
 load_dotenv()
+if "log_queue" not in st.session_state:
+    st.session_state.log_queue = queue.Queue()
 
 
 def myStyle():
+    st.session_state.log_queue.put(("info", "Bắt đầu xử lý dữ liệu..."))
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
     tree = app_commands.CommandTree(client)
@@ -68,7 +72,9 @@ def myStyle():
         try:
             req = requests.get("http://localhost:8888")
             print(req.status_code)
+            st.session_state.log_queue.put(("info", req.status_code))
             print("Client closed")
+            st.session_state.log_queue.put(("info", "Client closed"))
             sys.exit("Exited")
         except Exception as error:
             print(error)
@@ -82,8 +88,9 @@ def myStyle():
 
     @tasks.loop(seconds=1)
     async def getTransMb(guild):
-        global processed_thread, mb
+        global processed_thread, mb, st
         print("getTransMb is running")
+        st.session_state.log_queue.put(("info", "getTransMb is running"))
         if mb:
             try:
                 channels = guild.channels
@@ -100,6 +107,7 @@ def myStyle():
                     balance_info = mb.getBalance()
                     if not balance_info.acct_list:
                         print("No accounts found.")
+                        st.session_state.log_queue.put(("info", "No accounts found."))
                         return
 
                     # Use the first account for history
@@ -112,6 +120,12 @@ def myStyle():
                         account_number = main_account.acctNo
                         print(
                             f"Fetching history for account: {account_number} ({main_account.acctAlias})"
+                        )
+                        st.session_state.log_queue.put(
+                            (
+                                "info",
+                                f"Fetching history for account: {account_number} ({main_account.acctAlias})",
+                            )
                         )
 
                         # Define date range: last 30 days
@@ -126,6 +140,9 @@ def myStyle():
 
                         if not history.transactionHistoryList:
                             print("No transactions found in the last 30 days.")
+                            st.session_state.log_queue.put(
+                                ("info", "No transactions found in the last 30 days.")
+                            )
                         else:
                             for transaction in history.transactionHistoryList:
                                 refNo = transaction.refNo
@@ -219,6 +236,29 @@ def initialize_heavy_stuff():
     with st.spinner("running your scripts..."):
         thread = threading.Thread(target=myStyle)
         thread.start()
+        with st.status("Đang xử lý...", expanded=True) as status:
+            placeholder = st.empty()
+            logs = []
+            print(thread.is_alive(), st.session_state.log_queue.empty())
+            while thread.is_alive() or not st.session_state.log_queue.empty():
+                try:
+                    level, message = st.session_state.log_queue.get_nowait()
+                    logs.append((level, message))
+
+                    with placeholder.container():
+                        for lvl, msg in logs:
+                            if lvl == "info":
+                                st.write(msg)
+                            elif lvl == "success":
+                                st.success(msg)
+                            elif lvl == "error":
+                                st.error(msg)
+
+                    time.sleep(0.2)
+                except queue.Empty:
+                    time.sleep(0.3)
+
+            status.update(label="Hoàn thành!", state="complete", expanded=False)
         time.sleep(5)  # giả lập heavy: load model lớn, connect DB, train, etc.
         print(
             "Heavy initialization running..."
