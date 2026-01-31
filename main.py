@@ -26,11 +26,17 @@ from guild import *
 
 load_dotenv()
 if "log_queue" not in st.session_state:
-    st.session_state.log_queue = queue.Queue()
+    st.session_state["log_queue"] = queue.Queue()
+
+if "logs" not in st.session_state:
+    st.session_state["logs"] = []
+
+if "task_running" not in st.session_state:
+    st.session_state["task_running"] = False
 
 
-def myStyle():
-    st.session_state.log_queue.put(("info", "Bắt đầu xử lý dữ liệu..."))
+def myStyle(log_queue):
+    log_queue.put(("info", "Starting process data..."))
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
     tree = app_commands.CommandTree(client)
@@ -72,9 +78,9 @@ def myStyle():
         try:
             req = requests.get("http://localhost:8888")
             print(req.status_code)
-            st.session_state.log_queue.put(("info", req.status_code))
+            log_queue.put(("info", req.status_code))
             print("Client closed")
-            st.session_state.log_queue.put(("info", "Client closed"))
+            log_queue.put(("info", "Client closed"))
             sys.exit("Exited")
         except Exception as error:
             print(error)
@@ -90,7 +96,7 @@ def myStyle():
     async def getTransMb(guild):
         global processed_thread, mb, st
         print("getTransMb is running")
-        st.session_state.log_queue.put(("info", "getTransMb is running"))
+        log_queue.put(("info", "getTransMb is running"))
         if mb:
             try:
                 channels = guild.channels
@@ -107,7 +113,7 @@ def myStyle():
                     balance_info = mb.getBalance()
                     if not balance_info.acct_list:
                         print("No accounts found.")
-                        st.session_state.log_queue.put(("info", "No accounts found."))
+                        log_queue.put(("info", "No accounts found."))
                         return
 
                     # Use the first account for history
@@ -121,7 +127,7 @@ def myStyle():
                         print(
                             f"Fetching history for account: {account_number} ({main_account.acctAlias})"
                         )
-                        st.session_state.log_queue.put(
+                        log_queue.put(
                             (
                                 "info",
                                 f"Fetching history for account: {account_number} ({main_account.acctAlias})",
@@ -140,7 +146,7 @@ def myStyle():
 
                         if not history.transactionHistoryList:
                             print("No transactions found in the last 30 days.")
-                            st.session_state.log_queue.put(
+                            log_queue.put(
                                 ("info", "No transactions found in the last 30 days.")
                             )
                         else:
@@ -234,9 +240,9 @@ def myStyle():
 def initialize_heavy_stuff():
     # Đây là phần chỉ chạy ĐÚNG 1 LẦN khi server khởi động (hoặc khi cache miss)
     with st.spinner("running your scripts..."):
-        thread = threading.Thread(target=myStyle)
+        thread = threading.Thread(target=myStyle, args=(st.session_state.log_queue,))
         thread.start()
-        with st.status("Đang xử lý...", expanded=True) as status:
+        with st.status("Processing...", expanded=True) as status:
             placeholder = st.empty()
             logs = []
             print(thread.is_alive(), st.session_state.log_queue.empty())
