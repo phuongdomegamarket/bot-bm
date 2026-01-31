@@ -237,36 +237,16 @@ def myStyle(log_queue):
     client.run(os.environ.get("botToken"))
 
 
+thread = None
+
+
 @st.cache_resource
 def initialize_heavy_stuff():
+    global thread
     # Đây là phần chỉ chạy ĐÚNG 1 LẦN khi server khởi động (hoặc khi cache miss)
     with st.spinner("running your scripts..."):
         thread = threading.Thread(target=myStyle, args=(st.session_state.log_queue,))
         thread.start()
-        with st.status("Processing...", expanded=True) as status:
-            placeholder = st.empty()
-            logs = []
-            print(thread.is_alive(), st.session_state.log_queue.empty())
-            while thread.is_alive() or not st.session_state.log_queue.empty():
-                try:
-                    level, message = st.session_state.log_queue.get_nowait()
-                    logs.append((level, message))
-
-                    with placeholder.container():
-                        for lvl, msg in logs:
-                            if lvl == "info":
-                                st.write(msg)
-                            elif lvl == "success":
-                                st.success(msg)
-                            elif lvl == "error":
-                                st.error(msg)
-
-                    time.sleep(0.2)
-                except queue.Empty:
-                    time.sleep(0.3)
-
-            status.update(label="Hoàn thành!", state="complete", expanded=False)
-        time.sleep(5)  # giả lập heavy: load model lớn, connect DB, train, etc.
         print(
             "Heavy initialization running..."
         )  # bạn sẽ thấy log này chỉ 1 lần trong console/cloud log
@@ -277,6 +257,29 @@ def initialize_heavy_stuff():
         }
 
 
+if st.session_state["task_running"]:
+    with st.status("Processing...", expanded=True) as status:
+        placeholder = st.empty()
+        logs = []
+        while thread.is_alive() or not st.session_state.log_queue.empty():
+            try:
+                level, message = st.session_state.log_queue.get_nowait()
+                logs.append((level, message))
+
+                with placeholder.container():
+                    for lvl, msg in logs:
+                        if lvl == "info":
+                            st.write(msg)
+                        elif lvl == "success":
+                            st.success(msg)
+                        elif lvl == "error":
+                            st.error(msg)
+
+                time.sleep(0.2)
+            except queue.Empty:
+                time.sleep(0.3)
+
+        status.update(label="Hoàn thành!", state="complete", expanded=False)
 # Trong phần chính của app
 st.title("my style")
 
