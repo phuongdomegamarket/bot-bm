@@ -228,7 +228,7 @@ def myStyle(log_queue):
                                     if thread:
                                         processed_thread.add(threadName)
             except Exception as error:
-                log_queue.put("error", error)
+                log_queue.put(("error", str(error)))
                 mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
                 pass
         else:
@@ -257,35 +257,33 @@ def initialize_heavy_stuff():
         }
 
 
-if st.session_state["task_running"]:
-    with st.status("Processing...", expanded=True) as status:
-        placeholder = st.empty()
-        logs = []
-        while thread.is_alive() or not st.session_state.log_queue.empty():
-            try:
-                level, message = st.session_state.log_queue.get_nowait()
-                logs.append((level, message))
-
-                with placeholder.container():
-                    for lvl, msg in logs:
-                        if lvl == "info":
-                            st.write(msg)
-                        elif lvl == "success":
-                            st.success(msg)
-                        elif lvl == "error":
-                            st.error(msg)
-
-                time.sleep(0.2)
-            except queue.Empty:
-                time.sleep(0.3)
-
-        status.update(label="Hoàn thành!", state="complete", expanded=False)
 # Trong phần chính của app
 st.title("my style")
 
 # Dòng này đảm bảo: chạy 1 lần duy nhất, mọi user đều dùng chung kết quả
 result = initialize_heavy_stuff()
+with st.status("Processing...", expanded=True) as status:
+    placeholder = st.empty()
+    logs = []
+    while thread.is_alive() or not st.session_state.log_queue.empty():
+        try:
+            level, message = st.session_state.log_queue.get_nowait()
+            logs.append((level, message))
 
+            with placeholder.container():
+                for lvl, msg in logs:
+                    if lvl == "info":
+                        st.write(msg)
+                    elif lvl == "success":
+                        st.success(msg)
+                    elif lvl == "error":
+                        st.error(msg)
+
+            time.sleep(0.2)
+        except queue.Empty:
+            time.sleep(0.3)
+
+    status.update(label="Hoàn thành!", state="complete", expanded=False)
 st.success("The system is ready!")
 st.write("Result:")
 st.json(result)
