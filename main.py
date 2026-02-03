@@ -34,6 +34,7 @@ if "logs" not in st.session_state:
 if "task_running" not in st.session_state:
     st.session_state["task_running"] = False
 processed_thread = set()
+pause_watching = False
 
 
 def myStyle(log_queue):
@@ -122,10 +123,12 @@ def myStyle(log_queue):
 
     @tasks.loop(seconds=1)
     async def getTransMb(guild):
-        global processed_thread, mb, st
-        print("getTransMb is running")
-        log_queue.put(("info", "getTransMb is running"))
-        if mb:
+        global processed_thread, mb, st, pause_watching
+        print(f"getTransMb is {'running' if not pause_watching else 'paused'}")
+        log_queue.put(
+            ("info", f"getTransMb is {'running' if not pause_watching else 'paused'}")
+        )
+        if mb and not pause_watching:
             try:
                 channels = guild.channels
                 basic = None
