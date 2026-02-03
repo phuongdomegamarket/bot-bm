@@ -271,7 +271,7 @@ st.json(result)
 with st.status("Processing...", expanded=True) as status:
     placeholder = st.empty()
     logs = []
-    while thread.is_alive() or not st.session_state.log_queue.empty():
+    while (thread and thread.is_alive()) or not st.session_state.log_queue.empty():
         try:
             level, message = st.session_state.log_queue.get_nowait()
             logs.append((level, message))
