@@ -137,7 +137,7 @@ class MBBank:
                     headers=headers,
                     json=json_data,  # proxies=self.proxy
                 ) as r:
-                    if r.status_code == 428:
+                    if r.status == 428:
                         raise CryptoVerifyError(
                             r.text, r.headers.get("Content-Type", "")
                         )
@@ -200,7 +200,7 @@ class MBBank:
                 # proxies=self.proxy,
                 timeout=self.timeout,
             ) as r:
-                if r.status_code == 428:
+                if r.status == 428:
                     raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
                 data_out = await r.json()
                 return base64.b64decode(data_out["imageString"])
@@ -241,7 +241,7 @@ class MBBank:
                 # proxies=self.proxy,
                 timeout=self.timeout,
             ) as r:
-                if r.status_code == 428:
+                if r.status == 428:
                     raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
                 data_out = await r.json()
         if data_out["result"]["ok"]:
