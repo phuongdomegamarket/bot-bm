@@ -263,7 +263,7 @@ class MBBank:
             try_count += 1
             self._userinfo = None
             self.sessionId = None
-            img_bytes = self.get_capcha_image()
+            img_bytes = await self.get_capcha_image()
             captcha_text = self.ocr_class.process_image(img_bytes)
             try:
                 return await self.login(captcha_text)
