@@ -141,7 +141,7 @@ def myStyle(log_queue):
                     ]
                     applied_tags = []
                     # Get the main account balance and info to find the account number
-                    balance_info = mb.getBalance()
+                    balance_info = await mb.getBalance()
                     if not balance_info.acct_list:
                         print("No accounts found.")
                         log_queue.put(("info", "No accounts found."))
@@ -169,7 +169,7 @@ def myStyle(log_queue):
                         to_date = datetime.now()
                         from_date = to_date - timedelta(days=7)
 
-                        history = mb.getTransactionAccountHistory(
+                        history = await mb.getTransactionAccountHistory(
                             accountNo=account_number,
                             from_date=from_date,
                             to_date=to_date,
