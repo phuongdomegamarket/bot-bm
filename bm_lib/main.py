@@ -151,18 +151,25 @@ class MBBank:
                 raise MBBankAPIError(data_out["result"])
         return data_out
 
-    def _get_wasm_file(self):
+    async def _get_wasm_file(self):
         if self._wasm_cache is not None:
             return self._wasm_cache
-        file_data = requests.get(
-            "https://online.mbbank.com.vn/assets/wasm/main.wasm",
-            proxies=self.proxy,
-            timeout=self.timeout,
-        ).content
-        self._wasm_cache = file_data
-        return file_data
+        # file_data = requests.get(
+        #     "https://online.mbbank.com.vn/assets/wasm/main.wasm",
+        #     proxies=self.proxy,
+        #     timeout=self.timeout,
+        # ).content
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://online.mbbank.com.vn/assets/wasm/main.wasm",
+                proxies=self.proxy,
+                timeout=self.timeout,
+            ) as resp:
+                file_data = resp.content
+                self._wasm_cache = file_data
+                return file_data
 
-    def get_capcha_image(self) -> bytes:
+    async def get_capcha_image(self) -> bytes:
         """
         Get capcha image as bytes
 
@@ -176,17 +183,25 @@ class MBBank:
             "deviceIdCommon": self.deviceIdCommon,
         }
         headers = headers_default.copy()
-        with requests.post(
-            "https://online.mbbank.com.vn/api/retail-internetbankingms/getCaptchaImage",
-            headers=headers,
-            json=json_data,
-            proxies=self.proxy,
-            timeout=self.timeout,
-        ) as r:
-            if r.status_code == 428:
-                raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
-            data_out = r.json()
-            return base64.b64decode(data_out["imageString"])
+        # with requests.post(
+        #     "https://online.mbbank.com.vn/api/retail-internetbankingms/getCaptchaImage",
+        #     headers=headers,
+        #     json=json_data,
+        #     proxies=self.proxy,
+        #     timeout=self.timeout,
+        # ) as r:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://online.mbbank.com.vn/api/retail-internetbankingms/getCaptchaImage",
+                headers=headers,
+                json=json_data,
+                proxies=self.proxy,
+                timeout=self.timeout,
+            ) as r:
+                if r.status_code == 428:
+                    raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
+                data_out = r.json()
+                return base64.b64decode(data_out["imageString"])
 
     async def login(self, captcha_text: str):
         """
@@ -207,7 +222,7 @@ class MBBank:
             "deviceIdCommon": self.deviceIdCommon,
             "ibAuthen2faString": self.FPR,
         }
-        wasm_bytes = self._get_wasm_file()
+        wasm_bytes = await self._get_wasm_file()
         data_encrypt = wasm_encrypt(wasm_bytes, payload)
         with requests.post(
             "https://online.mbbank.com.vn/api/retail_web/internetbanking/v2.0/doLogin",
@@ -565,7 +580,7 @@ class MBBank:
         )
         return AccountNameResponseModal.model_validate(data_out, strict=True)
 
-    def getATMCardID(self, cardNumber: str) -> ATMCardIDResponseModal:
+    async def getATMCardID(self, cardNumber: str) -> ATMCardIDResponseModal:
         """
         Get ATM Card ID by card number
 
@@ -585,14 +600,22 @@ class MBBank:
             "cardNumber": cardNumber,
             "requestID": f"{self._userid}-{self._get_now_time()}",
         }
-        with requests.post(
-            "https://mbcard.mbbank.com.vn:8446/mbcardgw/internet/cardinfo/v1_0/generateid",
-            headers=headers,
-            json=json_data,
-            proxies=self.proxy,
-            timeout=self.timeout,
-        ) as r:
-            data_out = r.json()
+        # with requests.post(
+        #     "https://mbcard.mbbank.com.vn:8446/mbcardgw/internet/cardinfo/v1_0/generateid",
+        #     headers=headers,
+        #     json=json_data,
+        #     proxies=self.proxy,
+        #     timeout=self.timeout,
+        # ) as r:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://mbcard.mbbank.com.vn:8446/mbcardgw/internet/cardinfo/v1_0/generateid",
+                headers=headers,
+                json=json_data,
+                proxies=self.proxy,
+                timeout=self.timeout,
+            ) as r:
+                data_out = await r.json()
         return ATMCardIDResponseModal.model_validate(data_out, strict=True)
 
     async def getATMAccountName(
@@ -611,7 +634,7 @@ class MBBank:
         Raises:
             MBBankAPIError: if api response not ok
         """
-        card_id = self.getATMCardID(cardNumber=cardNumber)
+        card_id = await self.getATMCardID(cardNumber=cardNumber)
         if card_id.errorInfo.code != "000":
             raise MBBankAPIError(
                 {
@@ -619,7 +642,7 @@ class MBBank:
                     "message": card_id.errorInfo.message,
                 }
             )
-        bank_list = self.getBankList()
+        bank_list = await self.getBankList()
         bank_info: typing.Optional[Bank] = None
         for bank in bank_list.listBank:
             if cardNumber.startswith(bank.smlCode):
@@ -750,7 +773,7 @@ class TransferContext:
         self.message = message
         self.bank = None
 
-    def getBank(self) -> Bank:
+    async def getBank(self) -> Bank:
         """
         Get transfer destination bank info
 
@@ -759,14 +782,14 @@ class TransferContext:
         """
         if self.bank is not None:
             return self.bank
-        bank_list = self.mbbank.getBankList()
+        bank_list = await self.mbbank.getBankList()
         for bank in bank_list.listBank:
             if bank.bankCode == self.bank_code:
                 self.bank = bank
                 return bank
         raise BankNotFoundError("Bank code not found in bank list")
 
-    def verify_transfer(self) -> TransferResponseModal:
+    async def verify_transfer(self) -> TransferResponseModal:
         """
         Verify transfer info before making transfer
 
@@ -794,14 +817,14 @@ class TransferContext:
             "destType": "ACCOUNT",
             "otp": "",
         }
-        data_out = self.mbbank._req(
+        data_out = await self.mbbank._req(
             "https://online.mbbank.com.vn/api/retail_web/transfer/v1.0/verify-make-transfer",
             json=json_data,
             encrypt=True,
         )
         return TransferResponseModal.model_validate(data_out, strict=True)
 
-    def get_auth_list(self) -> AuthTransferResponseModal:
+    async def get_auth_list(self) -> AuthTransferResponseModal:
         """
         Get authentication method list for transfer
 
@@ -813,13 +836,13 @@ class TransferContext:
             BankNotFoundError: if bank code not found in bank list
         """
         if self.bank is None:
-            self.bank = self.getBank()
+            self.bank = await self.getBank()
         json_data = {
             "sourceAccount": self.src_account,
             "amount": self.amount,
             "serviceCode": f"GCM_FTR_DOM_{self.bank.typeTransfer}",
         }
-        data_out = self.mbbank._req(
+        data_out = await self.mbbank._req(
             "https://online.mbbank.com.vn/api/retail_web/internetbanking/getAuthList",
             json=json_data,
             encrypt=True,
@@ -843,7 +866,7 @@ class TransferContext:
                 "Call start() before create_transaction_authen() to prepare account name"
             )
         self.refNo = f"{self.mbbank._userid}-{self.mbbank._get_now_time()}"
-        custId = await self.mbbank.userinfo().cust.id
+        custId = (await self.mbbank.userinfo()).cust.id
         json_data = {
             "transactionAuthen": {
                 "refNo": self.refNo,
@@ -855,14 +878,16 @@ class TransferContext:
                 "destAccountName": self.to_account_name.benName,
             }
         }
-        data_out = self.mbbank._req(
+        data_out = await self.mbbank._req(
             "https://online.mbbank.com.vn/api/retail_web/vtap/createTransactionAuthen",
             json=json_data,
             encrypt=True,
         )
         return TransactionAuthenResponseModal.model_validate(data_out, strict=True)
 
-    def transfer(self, otp: str, auth_type: AuthListItem) -> TransferResponseModal:
+    async def transfer(
+        self, otp: str, auth_type: AuthListItem
+    ) -> TransferResponseModal:
         """
         Execute transfer with provided OTP
 
@@ -897,7 +922,7 @@ class TransferContext:
             "amount": self.amount,
             "otp": otp_crafted,
         }
-        data_out = self.mbbank._req(
+        data_out = await self.mbbank._req(
             "https://online.mbbank.com.vn/api/retail_web/transfer/v1.0/make-transfer",
             json=json_data,
             encrypt=True,
@@ -917,8 +942,8 @@ class TransferContext:
         """
         self.timestamp = int(datetime.datetime.now().timestamp())
         self.transaction_authen = (
-            await self.create_transaction_authen().transactionAuthen
-        )
+            await self.create_transaction_authen()
+        ).transactionAuthen
         return f"TRANID|{self.transaction_authen.id}"
 
     def _craft_otp(self, otp: str, auth_type: AuthListItem) -> str:
@@ -932,7 +957,7 @@ class TransferContext:
             )
         return f"ibr|{auth_type.code}||{otp}||{self.timestamp}|{self.transaction_authen.id}|{self.refNo}"
 
-    def start(self) -> "TransferContext":
+    async def start(self) -> "TransferContext":
         """
         Start transfer process this will verify transfer info and prepare for authentication
 
@@ -945,7 +970,7 @@ class TransferContext:
             MBBankAPIError: if api response not ok
         """
         bank = self.getBank()
-        self.to_account_name = self.mbbank.getAccountName(
+        self.to_account_name = await self.mbbank.getAccountName(
             accountNo=self.dest_account,
             bankCode=bank.bankCode,
             debitAccount=self.src_account,
