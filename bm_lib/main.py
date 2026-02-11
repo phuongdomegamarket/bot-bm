@@ -167,7 +167,7 @@ class MBBank:
                 # proxies=self.proxy,
                 timeout=self.timeout,
             ) as resp:
-                file_data = resp.content
+                file_data = await resp.text()
                 self._wasm_cache = file_data
                 return file_data
 
