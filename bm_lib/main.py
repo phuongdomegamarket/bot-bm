@@ -141,7 +141,7 @@ class MBBank:
                         raise CryptoVerifyError(
                             r.text, r.headers.get("Content-Type", "")
                         )
-                    data_out = r.json()
+                    data_out = await r.json()
             if data_out["result"] is None:
                 await self.getBalance()
             elif data_out["result"]["ok"]:
@@ -202,7 +202,7 @@ class MBBank:
             ) as r:
                 if r.status_code == 428:
                     raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
-                data_out = r.json()
+                data_out = await r.json()
                 return base64.b64decode(data_out["imageString"])
 
     async def login(self, captcha_text: str):
@@ -226,16 +226,24 @@ class MBBank:
         }
         wasm_bytes = await self._get_wasm_file()
         data_encrypt = wasm_encrypt(wasm_bytes, payload)
-        with requests.post(
-            "https://online.mbbank.com.vn/api/retail_web/internetbanking/v2.0/doLogin",
-            headers=headers_default,
-            json={"dataEnc": data_encrypt},
-            # proxies=self.proxy,
-            timeout=self.timeout,
-        ) as r:
-            if r.status_code == 428:
-                raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
-            data_out = r.json()
+        # with requests.post(
+        #     "https://online.mbbank.com.vn/api/retail_web/internetbanking/v2.0/doLogin",
+        #     headers=headers_default,
+        #     json={"dataEnc": data_encrypt},
+        #     # proxies=self.proxy,
+        #     timeout=self.timeout,
+        # ) as r:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://online.mbbank.com.vn/api/retail_web/internetbanking/v2.0/doLogin",
+                headers=headers_default,
+                json={"dataEnc": data_encrypt},
+                # proxies=self.proxy,
+                timeout=self.timeout,
+            ) as r:
+                if r.status_code == 428:
+                    raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
+                data_out = await r.json()
         if data_out["result"]["ok"]:
             self.sessionId = data_out["sessionId"]
             data_out.pop("result", None)
