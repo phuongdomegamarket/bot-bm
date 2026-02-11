@@ -111,7 +111,7 @@ class MBBank:
             json = {}
         while True:
             if self.sessionId is None:
-                self._authenticate()
+                await self._authenticate()
             rid = f"{self._userid}-{self._get_now_time()}"
             json_data = {
                 "sessionId": self.sessionId if self.sessionId is not None else "",
@@ -141,12 +141,12 @@ class MBBank:
                         )
                     data_out = r.json()
             if data_out["result"] is None:
-                self.getBalance()
+                await self.getBalance()
             elif data_out["result"]["ok"]:
                 data_out.pop("result", None)
                 break
             elif data_out["result"]["responseCode"] == "GW200":
-                self._authenticate()
+                await self._authenticate()
             else:
                 raise MBBankAPIError(data_out["result"])
         return data_out
@@ -188,7 +188,7 @@ class MBBank:
             data_out = r.json()
             return base64.b64decode(data_out["imageString"])
 
-    def login(self, captcha_text: str):
+    async def login(self, captcha_text: str):
         """
         Login to MBBank account
 
@@ -223,12 +223,12 @@ class MBBank:
             self.sessionId = data_out["sessionId"]
             data_out.pop("result", None)
             self._userinfo = data_out
-            self._verify_biometric_check()
+            await self._verify_biometric_check()
             return
         else:
             raise MBBankAPIError(data_out["result"])
 
-    def getServiceToken(self) -> ServiceTokenResponseModal:
+    async def getServiceToken(self) -> ServiceTokenResponseModal:
         """
         Get service token for external service usage
 
@@ -236,13 +236,13 @@ class MBBank:
             success (ServiceTokenResponseModal): service token
         """
         if self._userinfo is None:
-            self._authenticate()
+            await self._authenticate()
         data_out = self._req(
             "https://online.mbbank.com.vn/api/retail_web/common/getServiceToken"
         )
         return ServiceTokenResponseModal.model_validate(data_out, strict=True)
 
-    def _authenticate(self):
+    async def _authenticate(self):
         try_count = 0
         while try_count < self.retry_times:
             try_count += 1
@@ -287,7 +287,7 @@ class MBBank:
             MBBankAPIError: if api response not ok
         """
         if self._userinfo is None:
-            self._authenticate()
+            await self._authenticate()
         json_data = {
             "accountNo": self._userid if accountNo is None else accountNo,
             "fromDate": from_date.strftime("%d/%m/%Y"),
@@ -310,7 +310,7 @@ class MBBank:
             MBBankAPIError: if api response not ok
         """
         if self._userinfo is None:
-            self._authenticate()
+            await self._authenticate()
         data_out = await self._req(
             "https://online.mbbank.com.vn/api/retail-accountms/accountms/getBalance"
         )
@@ -671,7 +671,7 @@ class MBBank:
         )
         return context.start()
 
-    def userinfo(self) -> UserInfoResponseModal:
+    async def userinfo(self) -> UserInfoResponseModal:
         """
         Get current user info
 
@@ -682,7 +682,7 @@ class MBBank:
             MBBankAPIError: if api response not ok
         """
         if self._userinfo is None:
-            self._authenticate()
+            await self._authenticate()
         return UserInfoResponseModal.model_validate(self._userinfo, strict=True)
 
 
@@ -826,7 +826,7 @@ class TransferContext:
         )
         return AuthTransferResponseModal.model_validate(data_out, strict=True)
 
-    def create_transaction_authen(self) -> TransactionAuthenResponseModal:
+    async def create_transaction_authen(self) -> TransactionAuthenResponseModal:
         """
         Create transaction authentication payload
 
@@ -843,7 +843,7 @@ class TransferContext:
                 "Call start() before create_transaction_authen() to prepare account name"
             )
         self.refNo = f"{self.mbbank._userid}-{self.mbbank._get_now_time()}"
-        custId = self.mbbank.userinfo().cust.id
+        custId = await self.mbbank.userinfo().cust.id
         json_data = {
             "transactionAuthen": {
                 "refNo": self.refNo,
@@ -904,7 +904,7 @@ class TransferContext:
         )
         return TransferResponseModal.model_validate(data_out, strict=True)
 
-    def get_qr_code(self) -> str:
+    async def get_qr_code(self) -> str:
         """
         Get QR code string for authentication
 
@@ -916,7 +916,9 @@ class TransferContext:
             MBBankAPIError: if api response not ok
         """
         self.timestamp = int(datetime.datetime.now().timestamp())
-        self.transaction_authen = self.create_transaction_authen().transactionAuthen
+        self.transaction_authen = (
+            await self.create_transaction_authen().transactionAuthen
+        )
         return f"TRANID|{self.transaction_authen.id}"
 
     def _craft_otp(self, otp: str, auth_type: AuthListItem) -> str:
