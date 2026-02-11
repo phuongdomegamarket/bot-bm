@@ -204,7 +204,7 @@ def myStyle(log_queue):
                                     threads
                                 ) and threadName not in str(processed_thread):
                                     tags = basic.available_tags
-                                    st = ""
+                                    string = ""
                                     if sign == "+":
                                         for tag in tags:
                                             if (
@@ -219,7 +219,7 @@ def myStyle(log_queue):
                                                 or "chuyển đi" in tag.name.lower()
                                             ):
                                                 applied_tags.append(tag)
-                                        st += (
+                                        string += (
                                             "\nTới ngân hàng: **"
                                             + transaction.bankName
                                             + "**\nSố tài khoản: **"
@@ -248,7 +248,7 @@ def myStyle(log_queue):
                                         + "** ngày **"
                                         + transaction.transactionDate.split(" ")[0]
                                         + "**"
-                                        + st
+                                        + string
                                         + "\nSố dư hiện tại: **"
                                         + balance
                                         + " "
@@ -322,22 +322,22 @@ st.json(result)
 with st.status("Processing...", expanded=True) as status:
     placeholder = st.empty()
     logs = []
-    # while (thread and thread.is_alive()) or not st.session_state.log_queue.empty():
-    #     try:
-    #         level, message = st.session_state.log_queue.get_nowait()
-    #         logs.append((level, message))
+    while (thread and thread.is_alive()) or not st.session_state.log_queue.empty():
+        try:
+            level, message = st.session_state.log_queue.get_nowait()
+            logs.append((level, message))
 
-    #         with placeholder.container():
-    #             for lvl, msg in logs:
-    #                 if lvl == "info":
-    #                     st.write(msg)
-    #                 elif lvl == "success":
-    #                     st.success(msg)
-    #                 elif lvl == "error":
-    #                     st.error(msg)
+            with placeholder.container():
+                for lvl, msg in logs:
+                    if lvl == "info":
+                        st.write(msg)
+                    elif lvl == "success":
+                        st.success(msg)
+                    elif lvl == "error":
+                        st.error(msg)
 
-    #         time.sleep(0.2)
-    #     except queue.Empty:
-    #         time.sleep(0.3)
+            time.sleep(0.2)
+        except queue.Empty:
+            time.sleep(0.3)
 
     status.update(label="Hoàn thành!", state="complete", expanded=False)
