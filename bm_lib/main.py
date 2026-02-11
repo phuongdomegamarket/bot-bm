@@ -133,7 +133,9 @@ class MBBank:
             # ) as r:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    url, headers=headers, json=json_data, proxies=self.proxy
+                    url,
+                    headers=headers,
+                    json=json_data,  # proxies=self.proxy
                 ) as r:
                     if r.status_code == 428:
                         raise CryptoVerifyError(
@@ -162,7 +164,7 @@ class MBBank:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 "https://online.mbbank.com.vn/assets/wasm/main.wasm",
-                proxies=self.proxy,
+                # proxies=self.proxy,
                 timeout=self.timeout,
             ) as resp:
                 file_data = resp.content
@@ -195,7 +197,7 @@ class MBBank:
                 "https://online.mbbank.com.vn/api/retail-internetbankingms/getCaptchaImage",
                 headers=headers,
                 json=json_data,
-                proxies=self.proxy,
+                # proxies=self.proxy,
                 timeout=self.timeout,
             ) as r:
                 if r.status_code == 428:
@@ -228,7 +230,7 @@ class MBBank:
             "https://online.mbbank.com.vn/api/retail_web/internetbanking/v2.0/doLogin",
             headers=headers_default,
             json={"dataEnc": data_encrypt},
-            proxies=self.proxy,
+            # proxies=self.proxy,
             timeout=self.timeout,
         ) as r:
             if r.status_code == 428:
@@ -612,7 +614,7 @@ class MBBank:
                 "https://mbcard.mbbank.com.vn:8446/mbcardgw/internet/cardinfo/v1_0/generateid",
                 headers=headers,
                 json=json_data,
-                proxies=self.proxy,
+                # proxies=self.proxy,
                 timeout=self.timeout,
             ) as r:
                 data_out = await r.json()
