@@ -66,7 +66,7 @@ def myStyle(log_queue):
     intents = discord.Intents.default()
     client = MyClient(intents=intents)
     log_queue.put(("info", "Starting process data..."))
-    intents = discord.Intents.default()
+    # intents = discord.Intents.default()
     # client = discord.Client(intents=intents)
     # tree = app_commands.CommandTree(client)
     HEADERS = []
@@ -204,7 +204,7 @@ def myStyle(log_queue):
                                     threads
                                 ) and threadName not in str(processed_thread):
                                     tags = basic.available_tags
-                                    st = ""
+                                    string = ""
                                     if sign == "+":
                                         for tag in tags:
                                             if (
@@ -219,7 +219,7 @@ def myStyle(log_queue):
                                                 or "chuyển đi" in tag.name.lower()
                                             ):
                                                 applied_tags.append(tag)
-                                        st += (
+                                        string += (
                                             "\nTới ngân hàng: **"
                                             + transaction.bankName
                                             + "**\nSố tài khoản: **"
@@ -248,7 +248,7 @@ def myStyle(log_queue):
                                         + "** ngày **"
                                         + transaction.transactionDate.split(" ")[0]
                                         + "**"
-                                        + st
+                                        + string
                                         + "\nSố dư hiện tại: **"
                                         + balance
                                         + " "
