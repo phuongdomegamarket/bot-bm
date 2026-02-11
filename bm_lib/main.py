@@ -251,7 +251,7 @@ class MBBank:
             img_bytes = self.get_capcha_image()
             captcha_text = self.ocr_class.process_image(img_bytes)
             try:
-                return self.login(captcha_text)
+                return await self.login(captcha_text)
             except MBBankAPIError as e:
                 if e.code == "GW283":
                     continue  # capcha error, try again
