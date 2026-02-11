@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import typing
 
+import aiohttp
 import requests
 
 from .capcha_ocr import CapchaOCR, CapchaProcessing
@@ -101,7 +102,9 @@ class MBBank:
         microsecond = int(now.strftime("%f")[:2])
         return now.strftime(f"%Y%m%d%H%M{microsecond}")
 
-    def _req(self, url, *, json=None, headers=None, encrypt: bool = False) -> dict:
+    async def _req(
+        self, url, *, json=None, headers=None, encrypt: bool = False
+    ) -> dict:
         if headers is None:
             headers = {}
         if json is None:
@@ -124,12 +127,19 @@ class MBBank:
                 wasm_bytes = self._get_wasm_file()
                 data_encrypt = wasm_encrypt(wasm_bytes, json_data)
                 json_data = {"dataEnc": data_encrypt}
-            with requests.post(
-                url, headers=headers, json=json_data, proxies=self.proxy
-            ) as r:
-                if r.status_code == 428:
-                    raise CryptoVerifyError(r.text, r.headers.get("Content-Type", ""))
-                data_out = r.json()
+
+            # with requests.post(
+            #     url, headers=headers, json=json_data, proxies=self.proxy
+            # ) as r:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, headers=headers, json=json_data, proxies=self.proxy
+                ) as r:
+                    if r.status_code == 428:
+                        raise CryptoVerifyError(
+                            r.text, r.headers.get("Content-Type", "")
+                        )
+                    data_out = r.json()
             if data_out["result"] is None:
                 self.getBalance()
             elif data_out["result"]["ok"]:
