@@ -12,3 +12,4 @@ dotenv
 streamlit
 mb_capcha_ocr
 dotenv
+wasmtime
