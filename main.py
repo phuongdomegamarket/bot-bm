@@ -291,6 +291,26 @@ def myStyle(log_queue):
     client.run(os.environ.get("botToken"))
 
 
+def run_bot_forever(log_queue):
+    """Watchdog: chạy myStyle trong loop, tự restart nếu thread chết vì lỗi."""
+    retry_count = 0
+    while True:
+        try:
+            log_queue.put(("info", f"Khởi động bot (lần thử #{retry_count + 1})"))
+            myStyle(log_queue)  # đây là hàm blocking (client.run() bên trong)
+            # nếu chạy tới đây tức là client.run() thoát êm (VD: client.close() bình thường)
+            log_queue.put(("info", "Bot đã dừng bình thường"))
+        except SystemExit as e:
+            log_queue.put(("error", f"Bot bị SystemExit: {e}"))
+        except Exception as e:
+            log_queue.put(("error", f"Bot crash: {e}"))
+
+        retry_count += 1
+        wait = min(60, 2 ** min(retry_count, 6))  # backoff: 2,4,8,...tối đa 60s
+        log_queue.put(("info", f"Tự động restart sau {wait}s..."))
+        time.sleep(wait)
+
+
 thread = None
 
 
@@ -347,23 +367,3 @@ with st.status("Processing...", expanded=True) as status:
             time.sleep(0.3)
 
     status.update(label="Hoàn thành!", state="complete", expanded=False)
-
-
-def run_bot_forever(log_queue):
-    """Watchdog: chạy myStyle trong loop, tự restart nếu thread chết vì lỗi."""
-    retry_count = 0
-    while True:
-        try:
-            log_queue.put(("info", f"Khởi động bot (lần thử #{retry_count + 1})"))
-            myStyle(log_queue)  # đây là hàm blocking (client.run() bên trong)
-            # nếu chạy tới đây tức là client.run() thoát êm (VD: client.close() bình thường)
-            log_queue.put(("info", "Bot đã dừng bình thường"))
-        except SystemExit as e:
-            log_queue.put(("error", f"Bot bị SystemExit: {e}"))
-        except Exception as e:
-            log_queue.put(("error", f"Bot crash: {e}"))
-
-        retry_count += 1
-        wait = min(60, 2 ** min(retry_count, 6))  # backoff: 2,4,8,...tối đa 60s
-        log_queue.put(("info", f"Tự động restart sau {wait}s..."))
-        time.sleep(wait)
