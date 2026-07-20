@@ -106,11 +106,12 @@ def myStyle(log_queue):
         global INFO, mb
         try:
             req = requests.get("http://localhost:8888")
-            print(req.status_code)
-            log_queue.put(("info", req.status_code))
-            print("Client closed")
-            log_queue.put(("info", "Client closed"))
-            # sys.exit("Exited")
+            log_queue.put(
+                (
+                    "info",
+                    f"Phát hiện instance khác đang chạy (status {req.status_code}), dừng instance này",
+                )
+            )
             await client.close()
             return
         except Exception as error:
