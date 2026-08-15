@@ -269,6 +269,11 @@ def myStyle(log_queue):
             mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
 
     @client.tree.command()
+    async def stop_instance(interaction: discord.Interaction, bot_id: str):
+        global pause_watching
+        pause_watching = True
+
+    @client.tree.command()
     @app_commands.describe(
         bot_id="Confirm bot ID to pause watching transactions",
     )
