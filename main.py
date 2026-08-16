@@ -272,6 +272,7 @@ def myStyle(log_queue):
     async def stop_instance(interaction: discord.Interaction):
         global pause_watching
         pause_watching = True
+        await interaction.response.send_message(f"{client.user.name} is paused")
 
     @client.tree.command()
     @app_commands.describe(
