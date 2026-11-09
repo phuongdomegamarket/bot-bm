@@ -732,6 +732,19 @@ class MBTracker:
         if self.mb is None:
             return
         if exc.code in ("GW200", "GW21"):
+            # The bank throttles LOGINS per device id per day (4 logins in
+            # ~1h15m left the device logged-in-but-blinded all day).  When
+            # the session keeps dying right after each login, re-login is
+            # fuel, not fire-extinguisher: cap it to one attempt per 5
+            # minutes and let the poll retries ride the existing session.
+            now_mono = time.monotonic()
+            if now_mono - getattr(self, "_last_relogin_at", 0.0) < 300.0:
+                self._flog(
+                    "warning",
+                    "Bỏ qua đăng nhập lại (chống login-storm, giới hạn 1 lần/5 phút)",
+                )
+                return
+            self._last_relogin_at = now_mono
             invalidate = getattr(self.mb, "invalidate", None)
             if invalidate is not None:
                 invalidate()
