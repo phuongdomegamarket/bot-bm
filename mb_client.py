@@ -149,7 +149,13 @@ class MBClient:
     # ------------------------------------------------------------- device id
 
     def _load_device_id(self) -> str:
-        """Reuse the stored device id, so a restart is not a new device."""
+        """Reuse the stored device id, so a restart is not a new device.
+
+        On Streamlit Cloud there is no writable home for the store file, so
+        the device id can also arrive through the ``MB_DEVICE_ID`` secret.
+        The bank throttles logins per device id, which makes a stable id the
+        difference between a deploy that works and one that GW200s all day.
+        """
         if self.device_store_path and os.path.exists(self.device_store_path):
             try:
                 with open(self.device_store_path, "r", encoding="utf-8") as handle:
@@ -158,6 +164,9 @@ class MBClient:
                     return stored
             except OSError:
                 pass
+        from_env = (os.environ.get("MB_DEVICE_ID") or "").strip()
+        if from_env:
+            return from_env
         return self._rotate_device_id()
 
     def _rotate_device_id(self) -> str:
@@ -356,6 +365,15 @@ class MBClient:
         self.sessionId = session_id
         self._userinfo = {key: value for key, value in data.items() if key != "result"}
         self._logged_in_at = time.time()
+        # Streamlit Cloud has no writable home: the operator must copy this
+        # device id into the app secrets once, or every cold restart is a
+        # brand-new device and burns one of the bank's per-device logins.
+        if os.environ.get("MB_DEVICE_ID", "").strip() != self.device_id:
+            self._log(
+                "warning",
+                f"deviceId hiện tại: {self.device_id} - nếu chạy trên cloud, "
+                "hãy copy giá trị này vào Secrets (mb_device_id) để giữ nguyên thiết bị giữa các lần restart.",
+            )
 
     async def login(self) -> None:
         """Log in, retrying on a wrong captcha or a rejected device id."""
