@@ -1,0 +1,8 @@
+﻿python : C:\Python314\python.exe: can't open file 'D:\\python\\bot-bm\\mine_login2.py': [Errno 2] No such file or 
+directory
+At line:1 char:317
++ ...  /d/mbprobe; python mine_login2.py > mine_login2_out.txt 2>&1; Write- ...
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Python314\py...le or directory:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

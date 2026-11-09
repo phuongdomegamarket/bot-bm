@@ -1,4 +1,13 @@
 import asyncio
+
+# Streamlit 1.42 bootstrap calls asyncio.get_event_loop() in MainThread;
+# Python 3.14 removed the implicit loop creation, so create it explicitly.
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+import threading
 import json
 import locale
 import os
@@ -22,9 +31,13 @@ from dotenv import load_dotenv
 
 import bm_lib
 import server
+from bm_tracker import MBTracker, thread_ref_no
 from guild import *
 
-load_dotenv()
+# `override=True` is required on Windows: os.environ is case-insensitive and
+# USERNAME is already set to the Windows account, so load_dotenv() would skip
+# our .env "username" entry and the bot would log into MB as the Windows user.
+load_dotenv(override=True)
 if "log_queue" not in st.session_state:
     st.session_state["log_queue"] = queue.Queue()
 
@@ -79,6 +92,9 @@ def myStyle(log_queue):
     RESULT = None
 
     mb = None
+    tracker = None
+    tracker_task = None
+    SEEN_STORE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".seen_tx.json")
 
     def correctSingleQuoteJSON(s):
         rstr = ""
@@ -103,7 +119,7 @@ def myStyle(log_queue):
 
     @client.event
     async def on_ready():
-        global INFO, mb
+        global INFO, mb, tracker, tracker_task
         try:
             req = requests.get("http://localhost:8888")
             log_queue.put(
@@ -120,158 +136,183 @@ def myStyle(log_queue):
             for guild in client.guilds:
                 if guild.name.lower() == "phượng đỏ mega":
                     RESULT = await getBasic(guild)
-                    mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
+                    tracker = MBTracker(
+                        username=USERNAME,
+                        password=PASSWORD,
+                        account_no=ACCOUNT_NO,
+                        seen_store_path=SEEN_STORE,
+                        log=lambda level, message: log_queue.put((level, message)),
+                    )
+                    try:
+                        await tracker.start()
+                    except Exception as start_error:
+                        log_queue.put(
+                            ("error", f"Không đăng nhập được MB: {start_error}")
+                        )
+                        continue
+                    await seed_seen_from_threads(guild)
+                    tracker_task = asyncio.create_task(
+                        tracker.run_forever(handle_new_transactions)
+                    )
                     if not getTransMb.is_running():
                         getTransMb.start(guild)
+                    log_queue.put(("info", "Đã bắt đầu theo dõi giao dịch realtime"))
 
-    @tasks.loop(seconds=1)
-    async def getTransMb(guild):
-        global processed_thread, mb, st, pause_watching
-        print(f"getTransMb is {'running' if not pause_watching else 'paused'}")
-        log_queue.put(
-            ("info", f"getTransMb is {'running' if not pause_watching else 'paused'}")
-        )
-        if mb and not pause_watching:
+    async def seed_seen_from_threads(guild):
+        """Record transactions already posted as Discord threads.
+
+        Keeps a restart from re-announcing everything that happened while the
+        bot was down.
+
+        The thread name is built as
+            "<sign> <amount> <currency>/ <timestamp>/ <refNo>/ <accountNo>"
+        The timestamp and the account number are pure digits while the refNo
+        always carries letters, so the refNo is the first segment after the
+        header that contains a letter.  Picking "the first numeric part"
+        would grab the timestamp instead - that key never matches a real
+        transaction and the dedupe silently does nothing.
+        """
+        if tracker is None:
+            return
+        try:
+            for channel in guild.channels:
+                if channel.name != MAIN_CHANNEL:
+                    continue
+                keys = []
+                threads = list(channel.threads)
+                archived = [t async for t in channel.archived_threads()]
+                for thread in threads + archived:
+                    ref_no = thread_ref_no(thread.name)
+                    if ref_no:
+                        keys.append(f"refNo:{ref_no}")
+                if keys:
+                    tracker.seed_seen(keys)
+                    log_queue.put(
+                        ("info", f"Đã đánh dấu {len(keys)} giao dịch cũ từ thread")
+                    )
+        except Exception as error:
+            log_queue.put(("error", f"Không seed được thread cũ: {error}"))
+
+    async def handle_new_transactions(transactions, result):
+        """Create one Discord thread per newly seen transaction."""
+        guild = None
+        for g in client.guilds:
+            if g.name.lower() == "phượng đỏ mega":
+                guild = g
+                break
+        if guild is None:
+            return
+        basic = None
+        for channel in guild.channels:
+            if channel.name == MAIN_CHANNEL:
+                basic = channel
+        if basic is None:
+            return
+
+        for transaction in transactions:
             try:
-                channels = guild.channels
-                basic = None
-                for channel in channels:
-                    if channel.name == MAIN_CHANNEL:
-                        basic = channel
-                if basic:
-                    threads = basic.threads + [
-                        thread async for thread in basic.archived_threads()
-                    ]
-                    applied_tags = []
-                    # Get the main account balance and info to find the account number
-                    balance_info = await mb.getBalance()
-                    if not balance_info.acct_list:
-                        print("No accounts found.")
-                        log_queue.put(("info", "No accounts found."))
-                        return
-
-                    # Use the first account for history
-                    main_account = None
-                    for acc in balance_info.acct_list:
-                        if acc.acctNo == ACCOUNT_NO:
-                            main_account = acc
-                            break
-                    if main_account:
-                        account_number = main_account.acctNo
-                        print(
-                            f"Fetching history for account: {account_number} ({main_account.acctAlias})"
-                        )
-                        log_queue.put(
-                            (
-                                "info",
-                                f"Fetching history for account: {account_number} ({main_account.acctAlias})",
-                            )
-                        )
-
-                        # Define date range: last 30 days
-                        to_date = datetime.now()
-                        from_date = to_date - timedelta(days=7)
-
-                        history = await mb.getTransactionAccountHistory(
-                            accountNo=account_number,
-                            from_date=from_date,
-                            to_date=to_date,
-                        )
-
-                        if not history.transactionHistoryList:
-                            print("No transactions found in the last 30 days.")
-                            log_queue.put(
-                                ("info", "No transactions found in the last 30 days.")
-                            )
-                        else:
-                            for transaction in history.transactionHistoryList:
-                                refNo = transaction.refNo
-                                currency = transaction.currency
-                                amount = (
-                                    transaction.creditAmount
-                                    if transaction.creditAmount != "0"
-                                    else transaction.debitAmount
-                                )
-                                amount = [f"{cur:,}" for cur in [int(amount)]][0]
-                                sign = "+" if transaction.creditAmount != "0" else "-"
-                                description = transaction.description
-                                transactionAt = transaction.transactionDate
-                                timestamp = str(
-                                    datetime.strptime(
-                                        transactionAt, "%d/%m/%Y %H:%M:%S"
-                                    ).timestamp()
-                                    * 1000
-                                ).split(".")[0]
-                                threadName = f"{sign} {amount} {currency}/ {timestamp}/ {refNo}/ {account_number}"
-                                if threadName not in str(
-                                    threads
-                                ) and threadName not in str(processed_thread):
-                                    tags = basic.available_tags
-                                    string = ""
-                                    if sign == "+":
-                                        for tag in tags:
-                                            if (
-                                                "in" in tag.name.lower()
-                                                or "chuyển đến" in tag.name.lower()
-                                            ):
-                                                applied_tags.append(tag)
-                                    else:
-                                        for tag in tags:
-                                            if (
-                                                "out" in tag.name.lower()
-                                                or "chuyển đi" in tag.name.lower()
-                                            ):
-                                                applied_tags.append(tag)
-                                        string += (
-                                            "\nTới ngân hàng: **"
-                                            + transaction.bankName
-                                            + "**\nSố tài khoản: **"
-                                            + transaction.benAccountNo
-                                            + "**\nChủ tài khoản: **"
-                                            + transaction.benAccountName
-                                            + "**"
-                                        )
-                                    allowed_mentions = discord.AllowedMentions(
-                                        everyone=True
-                                    )
-                                    balance = [
-                                        f"{cur:,}"
-                                        for cur in [int(transaction.availableBalance)]
-                                    ][0]
-                                    thread = await basic.create_thread(
-                                        name=threadName,
-                                        content="\nSố tiền: **"
-                                        + amount
-                                        + " "
-                                        + currency
-                                        + "**\nNội dung: **"
-                                        + description
-                                        + "**\nThời điểm: **"
-                                        + transaction.transactionDate.split(" ")[1]
-                                        + "** ngày **"
-                                        + transaction.transactionDate.split(" ")[0]
-                                        + "**"
-                                        + string
-                                        + "\nSố dư hiện tại: **"
-                                        + balance
-                                        + " "
-                                        + currency
-                                        + "**\n@everyone",
-                                        applied_tags=applied_tags,
-                                    )
-                                    if thread:
-                                        processed_thread.add(threadName)
+                await post_transaction(basic, transaction)
             except Exception as error:
-                log_queue.put(("error", str(error)))
-                mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
-                pass
+                log_queue.put(("error", f"Lỗi tạo thread: {error}"))
+
+    async def post_transaction(basic, transaction):
+        currency = transaction.currency
+        amount = (
+            transaction.creditAmount
+            if transaction.creditAmount != "0"
+            else transaction.debitAmount
+        )
+        amount = f"{int(amount):,}"
+        sign = "+" if transaction.creditAmount != "0" else "-"
+        description = transaction.description
+        transactionAt = transaction.transactionDate
+        try:
+            timestamp = str(
+                datetime.strptime(transactionAt, "%d/%m/%Y %H:%M:%S").timestamp()
+                * 1000
+            ).split(".")[0]
+        except ValueError:
+            timestamp = "0"
+        threadName = f"{sign} {amount} {currency}/ {timestamp}/ {transaction.refNo}/ {transaction.accountNo}"
+
+        applied_tags = []
+        string = ""
+        if sign == "+":
+            for tag in basic.available_tags:
+                if "in" in tag.name.lower() or "chuyển đến" in tag.name.lower():
+                    applied_tags.append(tag)
         else:
-            mb = bm_lib.MBBank(username=USERNAME, password=PASSWORD)
+            for tag in basic.available_tags:
+                if "out" in tag.name.lower() or "chuyển đi" in tag.name.lower():
+                    applied_tags.append(tag)
+            string += (
+                "\nTới ngân hàng: **"
+                + (transaction.bankName or "")
+                + "**\nSố tài khoản: **"
+                + (transaction.benAccountNo or "")
+                + "**\nChủ tài khoản: **"
+                + (transaction.benAccountName or "")
+                + "**"
+            )
+        try:
+            balance = f"{int(transaction.availableBalance):,}"
+        except (TypeError, ValueError):
+            balance = str(transaction.availableBalance)
+        thread = await basic.create_thread(
+            name=threadName,
+            content="\nSố tiền: **"
+            + amount
+            + " "
+            + currency
+            + "**\nNội dung: **"
+            + description
+            + "**\nThời điểm: **"
+            + transaction.transactionDate.split(" ")[1]
+            + "** ngày **"
+            + transaction.transactionDate.split(" ")[0]
+            + "**"
+            + string
+            + "\nSố dư hiện tại: **"
+            + balance
+            + " "
+            + currency
+            + "**\n@everyone",
+            applied_tags=applied_tags,
+        )
+        if thread and tracker is not None:
+            tracker.mark_seen(transaction)
+            log_queue.put(
+                ("success", f"Đã đăng giao dịch {sign} {amount} {currency}")
+            )
+
+    @tasks.loop(seconds=2)
+    async def getTransMb(guild):
+        """Status heartbeat for the Streamlit panel.
+
+        The actual polling now lives in bm_tracker (persistent session,
+        adaptive interval, change detection). This loop only reports health.
+        """
+        global tracker
+        if tracker is None:
+            return
+        stats = tracker.stats
+        extra = f" err={stats['last_error']}" if stats.get("last_error") else ""
+        log_queue.put(
+            (
+                "info",
+                f"polls={stats['polls']} tx={stats['transactions']} "
+                f"inbox={stats['inbox_rows']} errors={stats['errors']} "
+                f"latency={stats['last_latency_ms']}ms interval={stats['interval']}s "
+                f"balance={stats.get('balance')}{extra}",
+            )
+        )
 
     @client.tree.command()
     async def stop_instance(interaction: discord.Interaction):
-        global pause_watching
+        global pause_watching, tracker
         pause_watching = True
+        if tracker is not None:
+            tracker.paused = True
         await interaction.response.send_message(f"{client.user.name} is paused")
 
     @client.tree.command()
@@ -281,18 +322,22 @@ def myStyle(log_queue):
     async def pause_watching_transactions(
         interaction: discord.Interaction, bot_id: str
     ):
-        global pause_watching
+        global pause_watching, tracker
         if int(bot_id) == client.user.id:
             pause_watching = True
+            if tracker is not None:
+                tracker.paused = True
             await interaction.response.send_message(f"{client.user.name} is paused")
         else:
             await interaction.response.send_message(f"Invalid bot ID")
 
     @client.tree.command()
     async def resume_watching_transactions(interaction: discord.Interaction):
-        global pause_watching
+        global pause_watching, tracker
         if pause_watching:
             pause_watching = False
+            if tracker is not None:
+                tracker.paused = False
             await interaction.response.send_message(f"{client.user.name} is resumed")
 
     client.run(os.environ.get("botToken"))

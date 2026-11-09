@@ -1,0 +1,8 @@
+﻿python : C:\Python314\python.exe: can't open file 'D:\\python\\bot-bm\\mine_push_dto.py': [Errno 2] No such file or 
+directory
+At line:1 char:409
++ ... TEXITCODE"; python mine_push_dto.py > mine_push_dto_out.txt 2>&1; Wri ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Python314\py...le or directory:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
