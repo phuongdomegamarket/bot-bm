@@ -49,6 +49,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Iterable, Optional
 
@@ -147,6 +148,7 @@ class MBTracker:
         seen_store_path: Optional[str] = None,
         grace_minutes: int = DEFAULT_GRACE_MINUTES,
         log: Optional[Logger] = None,
+        log_file: Optional[str] = None,
     ) -> None:
         self.username = username
         self.password = password
@@ -160,6 +162,7 @@ class MBTracker:
         self.seen_store_path = seen_store_path
         self.grace_minutes = grace_minutes
         self._log: Logger = log or (lambda level, message: None)
+        self.log_file = log_file
 
         self.mb: Optional[MBClient] = None
         self._seen: dict[str, float] = {}
@@ -213,6 +216,11 @@ class MBTracker:
         self._load_seen()
         # explicit credential check: fails loudly instead of inside the loop
         await self._call(self.mb.getBalance)
+        self._flog(
+            "success",
+            "Đăng nhập MB thành công, bắt đầu theo dõi realtime "
+            f"(tài khoản {self.account_no})",
+        )
         self._log("success", "Đăng nhập MB thành công, bắt đầu theo dõi realtime")
 
     async def close(self) -> None:
@@ -220,6 +228,28 @@ class MBTracker:
             close = getattr(self.mb, "close", None)
             if close is not None:
                 await close()
+
+    def _flog(self, level: str, message: str) -> None:
+        """Append to the on-disk log file.
+
+        The Streamlit UI log (log_queue) vanishes with the process and is
+        invisible in the console log, which is why the overnight run of
+        2026-11-09 left no trace of the tracker dying at 23:24.  This file
+        survives.  Logging must never break polling, so every failure here is
+        swallowed.
+        """
+        if not self.log_file:
+            return
+        try:
+            if os.path.isfile(self.log_file) and os.path.getsize(
+                self.log_file
+            ) > 5 * 1024 * 1024:
+                os.replace(self.log_file, self.log_file + ".1")
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self.log_file, "a", encoding="utf-8") as fh:
+                fh.write(f"[{stamp}] [{level}] {message}\n")
+        except Exception:
+            pass
 
     async def _ensure_session(self) -> Any:
         """Make sure the client owns a live session.
@@ -629,6 +659,8 @@ class MBTracker:
     ) -> None:
         """Poll forever, calling on_new with unseen transactions."""
         backoff = 1.0
+        last_alive = time.monotonic()
+        self._flog("info", "run_forever bắt đầu")
         while True:
             if self.paused:
                 await asyncio.sleep(1.0)
@@ -637,15 +669,36 @@ class MBTracker:
                 result = await self.poll()
                 backoff = 1.0
                 if result["transactions"]:
+                    self._flog(
+                        "success",
+                        f"Đăng {len(result['transactions'])} giao dịch: "
+                        + "; ".join(
+                            f"{getattr(tx, 'refNo', '?')} "
+                            f"{getattr(tx, 'debitAmount', None) or getattr(tx, 'creditAmount', None)}"
+                            for tx in result["transactions"]
+                        ),
+                    )
                     await on_new(result["transactions"], result)
                 interval = self._current_interval()
                 self.stats["interval"] = interval
+                now_mono = time.monotonic()
+                if now_mono - last_alive >= 900:
+                    # proof of life: 15-minute heartbeat, only to the file
+                    last_alive = now_mono
+                    self._flog(
+                        "info",
+                        f"còn sống: polls={self.stats['polls']} "
+                        f"inbox={self.stats['inbox_rows']} "
+                        f"errors={self.stats['errors']}",
+                    )
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
+                self._flog("error", "run_forever bị CANCELLED - task đã bị hủy")
                 raise
             except MBBankAPIError as exc:
                 self.stats["errors"] += 1
                 self.stats["last_error"] = str(exc)
+                self._flog("error", f"MB API lỗi: {exc}")
                 self._log("error", f"MB API lỗi: {exc}")
                 await self._recover(exc)
                 await asyncio.sleep(backoff)
@@ -655,12 +708,17 @@ class MBTracker:
                 # without throwing it away.
                 self.stats["errors"] += 1
                 self.stats["last_error"] = str(exc)
+                self._flog("error", f"MB giới hạn tần suất: {exc}")
                 self._log("error", f"MB giới hạn tần suất: {exc}")
                 await asyncio.sleep(max(backoff, 10.0))
                 backoff = min(60.0, backoff * 2)
             except Exception as exc:  # network hiccup, timeout, ...
                 self.stats["errors"] += 1
                 self.stats["last_error"] = str(exc)
+                self._flog(
+                    "error",
+                    f"Lỗi khi polling: {exc}\n{traceback.format_exc()}",
+                )
                 self._log("error", f"Lỗi khi polling: {exc}")
                 await asyncio.sleep(backoff)
                 backoff = min(60.0, backoff * 2)

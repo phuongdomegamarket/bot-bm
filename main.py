@@ -142,6 +142,10 @@ def myStyle(log_queue):
                         account_no=ACCOUNT_NO,
                         seen_store_path=SEEN_STORE,
                         log=lambda level, message: log_queue.put((level, message)),
+                        log_file=os.path.join(
+                            os.path.dirname(os.path.abspath(SEEN_STORE)),
+                            "tracker.log",
+                        ),
                     )
                     try:
                         await tracker.start()
@@ -292,9 +296,26 @@ def myStyle(log_queue):
         The actual polling now lives in bm_tracker (persistent session,
         adaptive interval, change detection). This loop only reports health.
         """
-        global tracker
+        global tracker, tracker_task
         if tracker is None:
             return
+        # Watchdog: the poll loop swallows every ordinary exception, so the
+        # only way it can die is CancelledError - which is exactly how the
+        # overnight run of 2026-11-09 lost its tracker at 23:24 while the
+        # Discord gateway kept running until 05:13. Revive the task here.
+        if tracker_task is not None and tracker_task.done():
+            error = tracker_task.exception()
+            log_queue.put(
+                (
+                    "error",
+                    "Task theo dõi đã chết: "
+                    + (f"{error}" if error else "bị hủy (CancelledError)"),
+                )
+            )
+            tracker_task = asyncio.create_task(
+                tracker.run_forever(handle_new_transactions)
+            )
+            log_queue.put(("info", "Đã hồi sinh task theo dõi giao dịch"))
         stats = tracker.stats
         extra = f" err={stats['last_error']}" if stats.get("last_error") else ""
         log_queue.put(
