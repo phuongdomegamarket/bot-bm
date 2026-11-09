@@ -164,7 +164,12 @@ class MBClient:
                     return stored
             except OSError:
                 pass
-        from_env = (os.environ.get("MB_DEVICE_ID") or "").strip()
+        # Streamlit Cloud maps secret keys to env vars verbatim, and Linux
+        # env lookups are case-sensitive: a secret named ``mb_device_id``
+        # never satisfies ``MB_DEVICE_ID``, so read both spellings.
+        from_env = (
+            os.environ.get("MB_DEVICE_ID") or os.environ.get("mb_device_id") or ""
+        ).strip()
         if from_env:
             return from_env
         return self._rotate_device_id()
@@ -368,7 +373,11 @@ class MBClient:
         # Streamlit Cloud has no writable home: the operator must copy this
         # device id into the app secrets once, or every cold restart is a
         # brand-new device and burns one of the bank's per-device logins.
-        if os.environ.get("MB_DEVICE_ID", "").strip() != self.device_id:
+        # Compare against BOTH secret spellings (case-sensitive on Linux).
+        if (
+            os.environ.get("MB_DEVICE_ID", "").strip() != self.device_id
+            and os.environ.get("mb_device_id", "").strip() != self.device_id
+        ):
             self._log(
                 "warning",
                 f"deviceId hiện tại: {self.device_id} - nếu chạy trên cloud, "
