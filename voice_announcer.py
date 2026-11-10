@@ -6,16 +6,18 @@ When enabled (``VOICE_CHANNEL`` env var set to a voice channel name, e.g.
 - the bank's own voice sentence when the inbox row carried one
   (``NotificationEvent.voice_text`` -> ``Transaction.addDescription``),
 - otherwise a sentence synthesised from the amount
-  ("Đã nhận thành công năm mươi nghìn Việt Nam Đồng").
+  ("Đã nhận thành công năm mươi nghìn đồng").
 
 Design notes
 ------------
 * gTTS (Google Translate TTS, ``lang='vi'``) does the synthesis - it only
   needs internet access and produced correct Vietnamese audio in testing,
   while edge-tts was rejected by Microsoft with HTTP 403.
-* Playback needs an ``ffmpeg`` binary (discord.py FFmpegOpusAudio).  The
-  Streamlit Cloud image has one; locally it is optional - without ffmpeg the
-  announcer logs a clear error and the tracker keeps running.
+* Playback needs an ``ffmpeg`` binary (discord.py FFmpegPCMAudio; ffmpeg only
+  decodes to raw PCM - discord.py itself encodes Opus through its libopus
+  binding, the same path music bots use).  The Streamlit Cloud image has
+  both; locally ffmpeg is optional - without it the announcer logs a clear
+  error and the tracker keeps running.
 * Announcements are serialised through an :class:`asyncio.Queue` so two
   transactions landing in the same poll never talk over each other.
 * Every failure is swallowed and logged: voice must never take the tracker
@@ -133,10 +135,12 @@ def voice_text_for(transaction: Any) -> Optional[str]:
         else:
             return None
         if spoken:
-            return spoken
+            # the bank's sentence ends in "Việt Nam Đồng"; shorten it the
+            # same way as the synthesised ones (user preference)
+            return spoken.replace("Việt Nam Đồng", "đồng")
         words = amount_to_vietnamese(amount)
         if currency.upper() == "VND":
-            return f"{prefix} {words} Việt Nam Đồng"
+            return f"{prefix} {words} đồng"
         return f"{prefix} {words} {currency}"
     except Exception:
         return None
@@ -257,7 +261,12 @@ class VoiceAnnouncer:
                     play_error.append(error)
                 done.set()
 
-            source = discord.FFmpegOpusAudio(path)
+            # PCM path: ffmpeg only decodes to s16le, discord.py encodes Opus
+            # itself through its own libopus binding. The previous
+            # FFmpegOpusAudio route let the cloud ffmpeg encode and parse Ogg
+            # packets, and the produced stream was never heard in the channel
+            # even though ffmpeg exited 0 and the UDP link was healthy.
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(path))
             vc.play(source, after=_after)
             await done.wait()
             if play_error:
