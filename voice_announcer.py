@@ -128,22 +128,68 @@ def voice_text_for(transaction: Any) -> Optional[str]:
         currency = (getattr(transaction, "currency", "") or "VND").strip()
         if credit not in ("", "0"):
             amount = int(float(credit))
-            prefix = "Đã nhận thành công"
+            prefix = "Đã nhận"
         elif debit not in ("", "0"):
             amount = int(float(debit))
             prefix = "Đã chuyển đi"
         else:
             return None
         if spoken:
-            # the bank's sentence ends in "Việt Nam Đồng"; shorten it the
-            # same way as the synthesised ones (user preference)
-            return spoken.replace("Việt Nam Đồng", "đồng")
+            # the bank's sentence starts with "Đã nhận thành công"; drop
+            # "thành công" the same way as the synthesised ones (user
+            # preference), and shorten "Việt Nam Đồng"
+            return (
+                spoken.replace("thành công ", "")
+                .replace("Việt Nam Đồng", "đồng")
+            )
         words = amount_to_vietnamese(amount)
         if currency.upper() == "VND":
             return f"{prefix} {words} đồng"
         return f"{prefix} {words} {currency}"
     except Exception:
         return None
+
+
+def synthesize_cash_sound(path: str, ticks: int = 7, rate: int = 44100) -> str:
+    """Write a short "counting money" sound as a WAV file.
+
+    A train of paper-like ticks (short filtered noise bursts with a metallic
+    ring) resembling a banknote being counted - synthesised directly into a
+    16-bit mono WAV so no audio asset file has to ship with the bot and the
+    cloud image needs nothing beyond stdlib ``wave``/``math``/``random``.
+    """
+    import math
+    import random
+    import struct
+    import wave
+
+    random.seed(20261110)  # stable sound across runs
+    tick_len = int(0.028 * rate)  # ~28 ms per tick
+    gap = int(0.075 * rate)  # ~75 ms between ticks -> ~0.7 s total
+    total = ticks * (tick_len + gap) + int(0.05 * rate)
+    samples = bytearray(total * 2)
+
+    for t in range(ticks):
+        start = t * (tick_len + gap)
+        # each tick slightly different pitch -> natural "riffle" feel
+        ring = 2600 + random.randint(-300, 300)
+        for i in range(tick_len):
+            env = math.exp(-i / (tick_len / 4.5))  # fast attack/decay
+            noise = random.uniform(-1.0, 1.0)
+            tone = math.sin(2 * math.pi * ring * i / rate)
+            # mostly noise (paper) + a little metallic ring
+            value = 0.72 * noise * env + 0.28 * tone * env
+            frame = int(value * 32767 * 0.55)
+            offset = (start + i) * 2
+            samples[offset] = frame & 0xFF
+            samples[offset + 1] = (frame >> 8) & 0xFF
+
+    with wave.open(path, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(bytes(samples))
+    return path
 
 
 class VoiceAnnouncer:
@@ -201,9 +247,15 @@ class VoiceAnnouncer:
                 log.warning("voice announce failed: %s", error)
 
     async def _find_channel(self) -> Optional[Any]:
-        name = self.channel_name.lower()
+        # Discord channel names can carry odd whitespace (the guild's voice
+        # channel is literally "voice\ntransactions"); normalise every run of
+        # whitespace to a single space on both sides before comparing.
+        def _norm(value: str) -> str:
+            return " ".join(value.split()).lower()
+
+        name = _norm(self.channel_name)
         for channel in self.guild.voice_channels:
-            if channel.name.lower() == name:
+            if _norm(channel.name) == name:
                 return channel
         return None
 
@@ -261,23 +313,42 @@ class VoiceAnnouncer:
                     play_error.append(error)
                 done.set()
 
+            def _play(source: "discord.AudioSource") -> None:
+                play_error.clear()
+                source = discord.PCMVolumeTransformer(source)
+                vc.play(source, after=_after)
+
+            # Cash-counting pre-roll (a short synthetic tick train) before
+            # the spoken sentence: signals "money incoming" while gTTS is
+            # still synthesising, cutting perceived latency.
+            pre = os.path.join(tempfile.gettempdir(), f"mb_cash_{os.getpid()}.wav")
+            try:
+                await asyncio.to_thread(synthesize_cash_sound, pre)
+                _play(discord.FFmpegPCMAudio(pre))
+                await done.wait()
+                if play_error:
+                    log.warning("voice pre-roll error: %s", play_error[0])
+                await asyncio.sleep(0.15)  # small gap before speech
+            except Exception as error:
+                log.warning("voice pre-roll failed: %s", error)
+
             # PCM path: ffmpeg only decodes to s16le, discord.py encodes Opus
             # itself through its own libopus binding. The previous
             # FFmpegOpusAudio route let the cloud ffmpeg encode and parse Ogg
             # packets, and the produced stream was never heard in the channel
             # even though ffmpeg exited 0 and the UDP link was healthy.
-            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(path))
-            vc.play(source, after=_after)
+            _play(discord.FFmpegPCMAudio(path))
             await done.wait()
             if play_error:
                 log.warning("voice playback error: %s", play_error[0])
             else:
                 log.info("voice played x%s: latency=%s", text[:40], getattr(vc, "average_latency", "?"))
         finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            for stale in (path,):
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass
 
 
 import discord  # noqa: E402  (used only inside _speak)
