@@ -32,6 +32,18 @@ from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
+# discord.py's client.run() only configures the "discord.*" loggers (its
+# setup_logging uses root_logger=False by default), so this module's INFO
+# lines would otherwise never reach the console on Streamlit Cloud.  Attach
+# our own handler so diagnostics like "voice connected: ... (UDP OK)" print.
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    log.addHandler(_handler)
+    log.setLevel(logging.INFO)
+
 # Amount -> Vietnamese words (up to billions, enough for bank transfers).
 _UNITS = [
     "", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín",
