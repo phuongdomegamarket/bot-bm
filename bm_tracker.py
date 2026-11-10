@@ -558,9 +558,27 @@ class MBTracker:
         )
         events = [e for e in parse_notifications(rows) if self._is_tracked(e)]
         events.sort(key=lambda e: e.sort_key)
-        inbox_refs = {e.ref_no for e in events if e.ref_no}
+        # a zero-amount row means the GD segment did not parse: its refNo
+        # stays free so the history safety net can announce the real amounts
+        inbox_refs = {
+            e.ref_no for e in events if e.ref_no and abs(e.amount) > 1e-9
+        }
 
         for event in events:
+            if abs(event.amount) <= 1e-9:
+                # zero amount = unparseable GD segment.  Announcing it would
+                # create a bogus "+0 VND" thread (the 10/11 08:45 incident).
+                # Mark it under its notiId key so the warning fires once and
+                # leave the refNo free for the history safety net.
+                if event.key not in self._seen:
+                    self._seen[event.key] = time.time()
+                    dirty = True
+                    self._log(
+                        "warning",
+                        f"Bỏ qua thông báo không đọc được số tiền "
+                        f"(notiId={event.noti_id}): {event.raw_body[:200]!r}",
+                    )
+                continue
             if self._is_card_sibling(event, events):
                 continue
             tx = event.to_transaction(account_no)
@@ -603,6 +621,13 @@ class MBTracker:
                     # the inbox already covers this transaction - and deduping
                     # by refNo here would swallow the fee leg, which history
                     # reports as a second row under the same refNo
+                    continue
+                credit = (getattr(row, "creditAmount", "") or "").strip()
+                debit = (getattr(row, "debitAmount", "") or "").strip()
+                if credit in ("", "0") and debit in ("", "0"):
+                    # no amount on either side: not a money movement (would
+                    # render as a bogus "+0 VND" thread).  Left unmarked so a
+                    # later row with real amounts still gets announced.
                     continue
                 key = self.tx_key(row)
                 if key in self._seen:

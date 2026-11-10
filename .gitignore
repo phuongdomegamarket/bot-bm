@@ -5,3 +5,6 @@ examples
 bot-bm
 .seen_tx.json
 .mb_device_id
+tracker.log
+bot_stdout.log
+bot_stderr.log
