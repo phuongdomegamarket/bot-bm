@@ -139,6 +139,10 @@ class VoiceAnnouncer:
         self.enabled = enabled
         self._queue: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
+        # Startup backlog (restarted bot re-announcing days-old
+        # transactions) must not blast through the speaker before anyone
+        # has joined; only transactions arriving after this moment speak.
+        self._live_only = True
 
     def start(self) -> None:
         if not self.enabled or self._worker is not None:
@@ -157,10 +161,18 @@ class VoiceAnnouncer:
         """Queue one sentence (never blocks, never raises)."""
         if not self.enabled or not text:
             return
+        if self._live_only:
+            # Dropped until the first "warm" transaction flows through;
+            # the backlog re-announcements right after startup stay mute.
+            return
         try:
             self._queue.put_nowait(text)
         except Exception:
             pass
+
+    def go_live(self) -> None:
+        """Enable speaking after the startup backlog has been drained."""
+        self._live_only = False
 
     async def _run(self) -> None:
         while True:
@@ -192,7 +204,10 @@ class VoiceAnnouncer:
         # known; inf latency means audio packets cannot reach Discord
         # (blocked UDP - e.g. Streamlit Cloud) and playback stays silent.
         latency = float("inf")
-        for _ in range(10):
+        # Discord's voice heartbeat runs every ~5 s, so the first real
+        # latency reading can take that long to arrive; 10 s keeps the
+        # "UDP blocked" verdict from firing on a healthy link.
+        for _ in range(20):
             value = getattr(vc, "average_latency", float("inf"))
             if isinstance(value, float) and 0 < value < float("inf"):
                 latency = value

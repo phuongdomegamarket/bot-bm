@@ -166,6 +166,15 @@ def myStyle(log_queue):
                     if voice is not None:
                         voice.start()
                         voice_announcers.append(voice)
+
+                        async def _open_voice_after_backlog():
+                            # Chờ lượt poll đầu tiên xổ nốt backlog giao dịch
+                            # cũ qua handle_new_transactions, rồi mới mở loa.
+                            await asyncio.sleep(20)
+                            voice.go_live()
+                            log_queue.put(("info", "Voice TTS đã mở loa (live)"))
+
+                        asyncio.create_task(_open_voice_after_backlog())
                         log_queue.put(
                             ("info", f"Voice TTS bật, kênh: {voice.channel_name}")
                         )
