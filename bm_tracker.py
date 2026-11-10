@@ -738,12 +738,22 @@ class MBTracker:
             # fuel, not fire-extinguisher: cap it to one attempt per 5
             # minutes and let the poll retries ride the existing session.
             now_mono = time.monotonic()
-            if now_mono - getattr(self, "_last_relogin_at", 0.0) < 300.0:
+            # The bank flags the whole ACCOUNT after login storms; every
+            # extra login burns device quota and deepens the flag, so the
+            # spacing between attempts grows: 5 min -> 10 -> 20 -> 40 -> cap
+            # at 60 min.  A long healthy stretch resets the spacing.
+            last = getattr(self, "_last_relogin_at", 0.0)
+            gap = getattr(self, "_relogin_gap", 300.0)
+            if now_mono - last < gap:
                 self._flog(
                     "warning",
-                    "Bỏ qua đăng nhập lại (chống login-storm, giới hạn 1 lần/5 phút)",
+                    f"Bỏ qua đăng nhập lại (chống login-storm, chờ {gap / 60:.0f} phút giữa các lần)",
                 )
                 return
+            if now_mono - last < 3 * 3600.0:
+                self._relogin_gap = min(3600.0, gap * 2)
+            else:
+                self._relogin_gap = 300.0
             self._last_relogin_at = now_mono
             invalidate = getattr(self.mb, "invalidate", None)
             if invalidate is not None:
