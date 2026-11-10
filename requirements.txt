@@ -12,3 +12,4 @@ streamlit
 mb_capcha_ocr
 wasmtime
 gtts
+PyNaCl
