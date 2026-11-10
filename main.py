@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 import bm_lib
 import server
 from bm_tracker import MBTracker, thread_ref_no
+import voice_announcer as va
 from guild import *
 
 # `override=True` is required on Windows: os.environ is case-insensitive and
@@ -77,6 +78,7 @@ def myStyle(log_queue):
             await self.tree.sync(guild=MY_GUILD)
 
     intents = discord.Intents.default()
+    intents.voice_states = True  # cần để bot nối vào kênh voice khi TTS bật
     client = MyClient(intents=intents)
     log_queue.put(("info", "Starting process data..."))
     # intents = discord.Intents.default()
@@ -119,7 +121,8 @@ def myStyle(log_queue):
 
     @client.event
     async def on_ready():
-        global INFO, mb, tracker, tracker_task
+        global INFO, mb, tracker, tracker_task, voice_announcers
+        voice_announcers = []
         try:
             req = requests.get("http://localhost:8888")
             log_queue.put(
@@ -158,6 +161,14 @@ def myStyle(log_queue):
                     tracker_task = asyncio.create_task(
                         tracker.run_forever(handle_new_transactions)
                     )
+                    # voice TTS tùy chọn: chỉ bật khi có VOICE_CHANNEL trong env
+                    voice = await va.create_from_env(guild)
+                    if voice is not None:
+                        voice.start()
+                        voice_announcers.append(voice)
+                        log_queue.put(
+                            ("info", f"Voice TTS bật, kênh: {voice.channel_name}")
+                        )
                     if not getTransMb.is_running():
                         getTransMb.start(guild)
                     log_queue.put(("info", "Đã bắt đầu theo dõi giao dịch realtime"))
@@ -218,6 +229,10 @@ def myStyle(log_queue):
                 await post_transaction(basic, transaction)
             except Exception as error:
                 log_queue.put(("error", f"Lỗi tạo thread: {error}"))
+            text = va.voice_text_for(transaction)
+            if text:
+                for ann in voice_announcers:
+                    ann.announce(text)
 
     async def post_transaction(basic, transaction):
         currency = transaction.currency
@@ -360,6 +375,14 @@ def myStyle(log_queue):
             if tracker is not None:
                 tracker.paused = False
             await interaction.response.send_message(f"{client.user.name} is resumed")
+
+    @client.tree.command()
+    async def stop_voice(interaction: discord.Interaction):
+        """Ngắt kết nối voice TTS (không tắt tracker)."""
+        for ann in voice_announcers:
+            await ann.stop()
+        voice_announcers.clear()
+        await interaction.response.send_message("Voice TTS stopped")
 
     client.run(os.environ.get("botToken"))
 
