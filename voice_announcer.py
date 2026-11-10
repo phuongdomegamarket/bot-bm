@@ -187,7 +187,24 @@ class VoiceAnnouncer:
         if channel is None:
             log.warning("voice channel %r not found", self.channel_name)
             return None
-        return await channel.connect(self_deaf=True)
+        vc = await channel.connect(self_deaf=True)
+        # The UDP socket needs a couple of heartbeats before latency is
+        # known; inf latency means audio packets cannot reach Discord
+        # (blocked UDP - e.g. Streamlit Cloud) and playback stays silent.
+        latency = float("inf")
+        for _ in range(10):
+            value = getattr(vc, "average_latency", float("inf"))
+            if isinstance(value, float) and 0 < value < float("inf"):
+                latency = value
+                break
+            await asyncio.sleep(0.5)
+        log.info(
+            "voice connected: channel=%s latency=%s (%s)",
+            channel.name,
+            latency,
+            "UDP OK" if latency < float("inf") else "UDP bị chặn - không phát được âm thanh",
+        )
+        return vc
 
     async def _speak(self, text: str) -> None:
         import gtts
@@ -206,13 +223,20 @@ class VoiceAnnouncer:
                 return
 
             done = asyncio.Event()
+            play_error: list = []
 
-            def _after(_error: Optional[Exception]) -> None:
+            def _after(error: Optional[Exception]) -> None:
+                if error is not None:
+                    play_error.append(error)
                 done.set()
 
             source = discord.FFmpegOpusAudio(path)
             vc.play(source, after=_after)
             await done.wait()
+            if play_error:
+                log.warning("voice playback error: %s", play_error[0])
+            else:
+                log.info("voice played x%s: latency=%s", text[:40], getattr(vc, "average_latency", "?"))
         finally:
             try:
                 os.remove(path)
