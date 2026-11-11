@@ -351,6 +351,19 @@ class VoiceAnnouncer:
             # FFmpegOpusAudio route let the cloud ffmpeg encode and parse Ogg
             # packets, and the produced stream was never heard in the channel
             # even though ffmpeg exited 0 and the UDP link was healthy.
+            # Diagnostics: a silent channel with a clean pipeline has always
+            # been receiver-side, so log exactly who the bot sees.
+            members = [member.display_name for member in vc.channel.members
+                       if not member.bot]
+            log.info(
+                "voice channel %r humans=%s opus_loaded=%s",
+                vc.channel.name, members or "[]", discord.opus.is_loaded(),
+            )
+            if not members:
+                log.warning(
+                    "voice channel %r has NO human listeners - nobody will hear the announcement",
+                    vc.channel.name,
+                )
             _play(discord.FFmpegPCMAudio(path))
             await done.wait()
             if play_error:
