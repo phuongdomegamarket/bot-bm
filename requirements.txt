@@ -1,4 +1,3 @@
-
 websockets
 requests
 bs4
@@ -8,8 +7,15 @@ msgpack
 flask
 httpx
 mbbank-lib
-dotenv
+python-dotenv
 streamlit
 mb_capcha_ocr
-dotenv
 wasmtime
+gtts
+PyNaCl
+# discord.py 2.7.1 speaks the davey 0.1.x API (process_commit installs keys
+# itself). davey 0.2.0 (2026-11-02) changed the protocol: keys only install
+# after prepare_transition/execute_transition, which discord.py never calls,
+# so with 0.2.0 the encrypt key never materialises, can_encrypt stays False
+# and the voice gateway silently drops every packet. Pin the 0.1.x line.
+davey==0.1.7
