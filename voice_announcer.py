@@ -27,6 +27,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import os
 import tempfile
@@ -201,6 +202,10 @@ class VoiceAnnouncer:
         self.enabled = enabled
         self._queue: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
+        # Monotonic counter for temp file names - id(text) can be reused by
+        # CPython after GC, which once made two identical queue texts share
+        # one temp path (the first cleanup deleted the second's file).
+        self._tts_seq = itertools.count()
         # Startup backlog (restarted bot re-announcing days-old
         # transactions) must not blast through the speaker before anyone
         # has joined; only transactions arriving after this moment speak.
@@ -293,8 +298,11 @@ class VoiceAnnouncer:
         import gtts
 
         def synthesize() -> str:
+            # id(text) can be reused by CPython after GC; the per-instance
+            # counter (see __init__) gives every synthesis its own file.
+            counter = next(self._tts_seq)
             path = os.path.join(
-                tempfile.gettempdir(), f"mb_tts_{os.getpid()}_{id(text)}.mp3"
+                tempfile.gettempdir(), f"mb_tts_{os.getpid()}_{counter}.mp3"
             )
             gtts.gTTS(text, lang="vi").save(path)
             return path
