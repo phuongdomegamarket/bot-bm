@@ -89,7 +89,9 @@ def myStyle(log_queue):
     USERNAMES = []
     USERNAME = os.environ.get("username")
     PASSWORD = os.environ.get("password")
-    ACCOUNT_NO = os.environ.get("account_no")
+    # one login watches every account in the list; several logins cannot
+    # coexist (single-instance rule) - so account_no accepts "a,b,c".
+    ACCOUNTS = [a.strip() for a in os.environ.get("account_no", "").split(",") if a.strip()]
     MAIN_CHANNEL = os.environ.get("main_channel")
     RESULT = None
 
@@ -142,7 +144,7 @@ def myStyle(log_queue):
                     tracker = MBTracker(
                         username=USERNAME,
                         password=PASSWORD,
-                        account_no=ACCOUNT_NO,
+                        account_no=ACCOUNTS or None,
                         seen_store_path=SEEN_STORE,
                         log=lambda level, message: log_queue.put((level, message)),
                         log_file=os.path.join(

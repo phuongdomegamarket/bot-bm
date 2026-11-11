@@ -138,7 +138,7 @@ class MBTracker:
         *,
         username: str,
         password: str,
-        account_no: Optional[str] = None,
+        account_no: Optional[str | Sequence[str]] = None,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         idle_interval: float = DEFAULT_IDLE_INTERVAL,
         history_interval: float = DEFAULT_HISTORY_INTERVAL,
@@ -152,6 +152,10 @@ class MBTracker:
     ) -> None:
         self.username = username
         self.password = password
+        # account_no accepts a single number or a list - one login can watch
+        # every account, several logins cannot coexist (single-instance rule).
+        # The property setter keeps accounts/_masks in sync, so code (and the
+        # test suite) may reassign account_no at any time.
         self.account_no = account_no
         self.poll_interval = poll_interval
         self.idle_interval = idle_interval
@@ -219,7 +223,7 @@ class MBTracker:
         self._flog(
             "success",
             "Đăng nhập MB thành công, bắt đầu theo dõi realtime "
-            f"(tài khoản {self.account_no})",
+            f"(tài khoản {', '.join(self.accounts) or 'tất cả'})",
         )
         self._log("success", "Đăng nhập MB thành công, bắt đầu theo dõi realtime")
 
@@ -352,19 +356,46 @@ class MBTracker:
 
     # ------------------------------------------------------------------ poll
 
+    @property
+    def account_no(self) -> Optional[str]:
+        """Primary account, kept for backwards compatibility (stats/UI)."""
+        return self.accounts[0] if self.accounts else None
+
+    @account_no.setter
+    def account_no(self, value: Optional[str | Sequence[str]]) -> None:
+        if isinstance(value, (list, tuple, set)):
+            self.accounts: list[str] = [str(a) for a in value if a]
+        elif value:
+            self.accounts = [str(value)]
+        else:
+            self.accounts = []
+        self._masks = {mask_account(a) for a in self.accounts}
+
     def _select_account(self, balance: Any) -> Any:
         accounts = list(getattr(balance, "acct_list", None) or [])
         if not accounts:
             return None
-        if self.account_no:
+        for wanted in self.accounts:
             for account in accounts:
-                if account.acctNo == self.account_no:
+                if account.acctNo == wanted:
                     return account
+        if self.account_no:
             self._log(
                 "error",
                 f"Không thấy tài khoản {self.account_no} trong danh sách, dùng tài khoản đầu tiên",
             )
         return accounts[0]
+
+    def _account_for(self, event: NotificationEvent) -> Optional[str]:
+        """The real account number behind an inbox row.
+
+        The inbox only carries the masked account ("92xxx456"), so the row
+        must be rendered with the number whose mask matches it.
+        """
+        for account in self.accounts:
+            if event.account_mask == mask_account(account):
+                return account
+        return event.account_no or None
 
     async def _throttle(self) -> None:
         """Keep a floor between two consecutive bank calls.
@@ -458,10 +489,10 @@ class MBTracker:
         One transfer emits one inbox row per involved account, all sharing
         the same notiId - the other side's row must not be announced here.
         """
-        if self.account_no:
-            if event.account_no and event.account_no == self.account_no:
+        if self.accounts:
+            if event.account_no and event.account_no in self.accounts:
                 return True
-            return event.account_mask == mask_account(self.account_no)
+            return event.account_mask in self._masks
         return bool(event.account_mask)
 
     @staticmethod
@@ -581,7 +612,7 @@ class MBTracker:
                 continue
             if self._is_card_sibling(event, events):
                 continue
-            tx = event.to_transaction(account_no)
+            tx = event.to_transaction(self._account_for(event) or account_no)
             self._enrich(tx)
             key = self.tx_key(tx)
             if key in self._seen:
@@ -597,48 +628,51 @@ class MBTracker:
             dirty = True
             transactions.append(tx)
 
-        # ---- safety net: history catches rows the inbox does not know
-        if account_no and (
+        # ---- safety net: history catches rows the inbox does not know.
+        # With several watched accounts the loop visits each one; every _call
+        # is throttled to MIN_CALL_GAP, so the gap protects against 429.
+        if self.accounts and (
             self._first_poll
             or balance_changed
             or (now_mono - self._last_history_at) >= self.history_interval
         ):
             self._last_history_at = now_mono
-            history = await self._call(
-                self.mb.getTransactionAccountHistory,
-                accountNo=account_no,
-                from_date=now - timedelta(days=HISTORY_WINDOW_DAYS),
-                to_date=now,
-            )
-            history_rows = getattr(history, "transactionHistoryList", None) or []
-            for row in history_rows:
-                if row.refNo:
-                    self._history_cache[row.refNo] = row
-            if len(self._history_cache) > 1000:
-                self._history_cache = {r.refNo: r for r in history_rows if r.refNo}
-            for row in history_rows:
-                if row.refNo and row.refNo in inbox_refs:
-                    # the inbox already covers this transaction - and deduping
-                    # by refNo here would swallow the fee leg, which history
-                    # reports as a second row under the same refNo
-                    continue
-                credit = (getattr(row, "creditAmount", "") or "").strip()
-                debit = (getattr(row, "debitAmount", "") or "").strip()
-                if credit in ("", "0") and debit in ("", "0"):
-                    # no amount on either side: not a money movement (would
-                    # render as a bogus "+0 VND" thread).  Left unmarked so a
-                    # later row with real amounts still gets announced.
-                    continue
-                key = self.tx_key(row)
-                if key in self._seen:
-                    continue
-                if self._first_poll and not self._within_grace(row):
+            for watched in self.accounts:
+                history = await self._call(
+                    self.mb.getTransactionAccountHistory,
+                    accountNo=watched,
+                    from_date=now - timedelta(days=HISTORY_WINDOW_DAYS),
+                    to_date=now,
+                )
+                history_rows = getattr(history, "transactionHistoryList", None) or []
+                for row in history_rows:
+                    if row.refNo:
+                        self._history_cache[row.refNo] = row
+                if len(self._history_cache) > 1000:
+                    self._history_cache = {r.refNo: r for r in history_rows if r.refNo}
+                for row in history_rows:
+                    if row.refNo and row.refNo in inbox_refs:
+                        # the inbox already covers this transaction - and deduping
+                        # by refNo here would swallow the fee leg, which history
+                        # reports as a second row under the same refNo
+                        continue
+                    credit = (getattr(row, "creditAmount", "") or "").strip()
+                    debit = (getattr(row, "debitAmount", "") or "").strip()
+                    if credit in ("", "0") and debit in ("", "0"):
+                        # no amount on either side: not a money movement (would
+                        # render as a bogus "+0 VND" thread).  Left unmarked so a
+                        # later row with real amounts still gets announced.
+                        continue
+                    key = self.tx_key(row)
+                    if key in self._seen:
+                        continue
+                    if self._first_poll and not self._within_grace(row):
+                        self._seen[key] = time.time()
+                        dirty = True
+                        continue
                     self._seen[key] = time.time()
                     dirty = True
-                    continue
-                self._seen[key] = time.time()
-                dirty = True
-                transactions.append(row)
+                    transactions.append(row)
 
         if transactions:
             self._last_change_at = now_mono
@@ -806,7 +840,9 @@ async def _self_test() -> None:  # pragma: no cover - manual smoke test
     tracker = MBTracker(
         username=os.environ.get("username", ""),
         password=os.environ.get("password", ""),
-        account_no=os.environ.get("account_no"),
+        account_no=[
+            a.strip() for a in os.environ.get("account_no", "").split(",") if a.strip()
+        ],
         seen_store_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".seen_tx.json"),
         log=lambda level, message: print(f"[{level}] {message}"),
     )
