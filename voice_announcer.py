@@ -202,9 +202,8 @@ class VoiceAnnouncer:
         self.enabled = enabled
         self._queue: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
-        # Monotonic counter for temp file names - id(text) can be reused by
-        # CPython after GC, which once made two identical queue texts share
-        # one temp path (the first cleanup deleted the second's file).
+        # Monotonic counter for temp file names: every synthesis gets its own
+        # file even for identical text (id(text) can be recycled by CPython).
         self._tts_seq = itertools.count()
         # Startup backlog (restarted bot re-announcing days-old
         # transactions) must not blast through the speaker before anyone
@@ -323,6 +322,13 @@ class VoiceAnnouncer:
 
             def _play(source: "discord.AudioSource") -> None:
                 play_error.clear()
+                # `done` is reused between the pre-roll and the speech: the
+                # pre-roll's after() callback leaves it SET, so the speech's
+                # done.wait() below would return instantly and the finally
+                # would delete the mp3 before the just-spawned ffmpeg even
+                # opens it (rc=254 "No such file or directory" - the speech
+                # was never heard, only the pre-roll ticks played).
+                done.clear()
                 source = discord.PCMVolumeTransformer(source)
                 vc.play(source, after=_after)
 
