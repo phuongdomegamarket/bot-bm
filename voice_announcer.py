@@ -27,13 +27,16 @@ Design notes
 from __future__ import annotations
 
 import asyncio
-import itertools
+import hashlib
 import logging
 import os
 import tempfile
 from typing import Any, Optional
 
 log = logging.getLogger(__name__)
+
+# File extension per cached sound kind (see VoiceAnnouncer._cached_path).
+SOUND_EXT = {"cash": ".wav", "tts": ".mp3"}
 
 # discord.py's client.run() only configures the "discord.*" loggers (its
 # setup_logging uses root_logger=False by default), so this module's INFO
@@ -154,11 +157,96 @@ def voice_text_for(transaction: Any) -> Optional[str]:
 def synthesize_cash_sound(path: str, ticks: int = 7, rate: int = 44100) -> str:
     """Write a short "counting money" sound as a WAV file.
 
-    A train of paper-like ticks (short filtered noise bursts with a metallic
-    ring) resembling a banknote being counted - synthesised directly into a
-    16-bit mono WAV so no audio asset file has to ship with the bot and the
-    cloud image needs nothing beyond stdlib ``wave``/``math``/``random``.
+    A run of banknote flicks - band-shaped paper noise with a resonant edge
+    ring per flick, settling double-clicks, irregular timing and a faint
+    handling rustle underneath - the way a teller counts bills one by one.
+    Synthesised into a 16-bit mono WAV so no audio asset has to ship with
+    the bot.  Uses ``numpy`` (installed with streamlit on both local and
+    cloud); without it the plainer stdlib tick train below is the fallback.
     """
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        return _synthesize_cash_stdlib(path, ticks, rate)
+    return _synthesize_cash_numpy(path, ticks, rate)
+
+
+def _synthesize_cash_numpy(path: str, ticks: int, rate: int) -> str:
+    import wave
+
+    import numpy as np
+
+    rng = np.random.default_rng(20261110)  # stable sound across runs
+
+    def flick() -> np.ndarray:
+        """One banknote flick: shaped noise burst + resonant edge ring."""
+        m = int(rng.uniform(0.016, 0.028) * rate)
+        spec = np.fft.rfft(rng.standard_normal(m))
+        freqs = np.fft.rfftfreq(m, d=1.0 / rate)
+        safe = np.maximum(freqs, 1.0)
+        # papery body: roll off below ~900 Hz and above ~9.5 kHz
+        shape = 1.0 / (1.0 + (900.0 / safe) ** 4)
+        shape *= 1.0 / (1.0 + (freqs / 9500.0) ** 3)
+        # each bill edge rings at a slightly different pitch
+        ring = rng.uniform(2400.0, 5200.0)
+        sigma = rng.uniform(400.0, 900.0)
+        shape *= 1.0 + 1.1 * np.exp(-((freqs - ring) ** 2) / (2.0 * sigma**2))
+        body = np.fft.irfft(spec * shape, n=m)
+        body /= np.max(np.abs(body)) + 1e-9
+        t = np.arange(m) / rate
+        attack = np.minimum(t / 0.0006, 1.0)  # ~0.6 ms onset
+        decay = np.exp(-t / rng.uniform(0.004, 0.007))
+        return body * attack * decay * rng.uniform(0.55, 1.0)
+
+    budget = ticks * int(0.13 * rate) + int(0.25 * rate)
+    audio = np.zeros(budget)
+    cursor = int(0.015 * rate)
+    last_end = 0
+    for _ in range(ticks):
+        body = flick()
+        start = min(cursor, budget - 1)
+        end = min(start + len(body), budget)
+        audio[start:end] += body[: end - start]
+        last_end = max(last_end, end)
+        if rng.random() < 0.6:  # the bill settles on the stack: soft echo
+            echo = flick() * rng.uniform(0.35, 0.6)
+            s2 = cursor + len(body) + int(rng.uniform(0.008, 0.015) * rate)
+            e2 = min(s2 + len(echo), budget)
+            if s2 < budget:
+                audio[s2:e2] += echo[: e2 - s2]
+                last_end = max(last_end, e2)
+        cursor += int(rng.uniform(0.080, 0.110) * rate)
+
+    audio = audio[: last_end + int(0.06 * rate)]
+
+    # faint handling rustle under the flicks glues them into one gesture
+    n = len(audio)
+    spec = np.fft.rfft(rng.standard_normal(n))
+    freqs = np.fft.rfftfreq(n, d=1.0 / rate)
+    safe = np.maximum(freqs, 1.0)
+    shape = 1.0 / (1.0 + (1200.0 / safe) ** 4) / (1.0 + (freqs / 8000.0) ** 2)
+    amb = np.fft.irfft(spec * shape, n=n)
+    amb /= np.max(np.abs(amb)) + 1e-9
+    audio += amb * 0.045
+
+    # fade both edges so neither the rustle's start nor its cut clicks
+    head = min(int(0.004 * rate), n // 4)
+    fade = max(1, min(int(0.035 * rate), n // 4))
+    audio[:head] *= np.linspace(0.0, 1.0, head)
+    audio[-fade:] *= np.linspace(1.0, 0.0, fade)
+
+    peak = np.max(np.abs(audio)) + 1e-9
+    frames = (audio / peak * 0.65 * 32767).astype("<i2").tobytes()
+    with wave.open(path, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(frames)
+    return path
+
+
+def _synthesize_cash_stdlib(path: str, ticks: int = 7, rate: int = 44100) -> str:
+    """Fallback without numpy: the original single-tick train."""
     import math
     import random
     import struct
@@ -202,13 +290,57 @@ class VoiceAnnouncer:
         self.enabled = enabled
         self._queue: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
-        # Monotonic counter for temp file names: every synthesis gets its own
-        # file even for identical text (id(text) can be recycled by CPython).
-        self._tts_seq = itertools.count()
         # Startup backlog (restarted bot re-announcing days-old
         # transactions) must not blast through the speaker before anyone
         # has joined; only transactions arriving after this moment speak.
         self._live_only = True
+        # Reuse fixed sounds instead of re-synthesising them per announce:
+        # the cash pre-roll is fully deterministic (fixed seed) and spoken
+        # sentences repeat constantly ("Đã nhận ... đồng"), so both are
+        # cached on disk by content hash and reused on every later announce.
+        self._cache_dir = os.path.join(tempfile.gettempdir(), "mb_voice_cache")
+        self._mem_cache: dict[str, str] = {}
+
+    # ---- fixed-sound reuse -------------------------------------------------
+
+    def _cached_path(self, kind: str, key: str, build) -> Optional[str]:
+        """Return a playable file for (kind, key), building it once.
+
+        ``key`` fully determines the audio (text for TTS, seed for the cash
+        sound), so a cached hit is bit-identical to a fresh synthesis.  Two
+        levels: an in-memory {key: path} map and an on-disk
+        mb_voice_cache/{kind}-{md5}.{ext} file.  Disk hits survive process
+        restarts (Streamlit Cloud keeps /tmp per container run).
+        """
+        try:
+            hit = self._mem_cache.get(key)
+            if hit and os.path.isfile(hit):
+                return hit
+            os.makedirs(self._cache_dir, exist_ok=True)
+            digest = hashlib.md5((kind + "|" + key).encode("utf-8")).hexdigest()
+            path = os.path.join(self._cache_dir, f"{kind}-{digest}{SOUND_EXT[kind]}")
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                self._mem_cache[key] = path
+                return path
+            build(path)
+            self._mem_cache[key] = path
+            return path
+        except Exception as error:
+            log.warning("voice cache %s failed: %s", kind, error)
+            return None
+
+    def _build_cash(self, path: str) -> None:
+        synthesize_cash_sound(path)
+
+    def _build_tts(self, text: str):
+        def build(path: str) -> None:
+            import gtts
+
+            gtts.gTTS(text, lang="vi").save(path)
+
+        return build
+
+    # ---- queue ------------------------------------------------------------
 
     def start(self) -> None:
         if not self.enabled or self._worker is not None:
@@ -294,19 +426,15 @@ class VoiceAnnouncer:
         return vc
 
     async def _speak(self, text: str) -> None:
-        import gtts
-
-        def synthesize() -> str:
-            # id(text) can be reused by CPython after GC; the per-instance
-            # counter (see __init__) gives every synthesis its own file.
-            counter = next(self._tts_seq)
-            path = os.path.join(
-                tempfile.gettempdir(), f"mb_tts_{os.getpid()}_{counter}.mp3"
-            )
-            gtts.gTTS(text, lang="vi").save(path)
-            return path
-
-        path = await asyncio.to_thread(synthesize)
+        # Synthesis BEFORE connecting: a cache miss pays the gTTS network
+        # round-trip behind the voice-connection handshake instead of in
+        # front of it; a cache hit returns instantly from disk.  The cash
+        # pre-roll is looked up first - on a hit it can start playing while
+        # the sentence is still being synthesised.
+        pre = self._cached_path("cash", "preroll", self._build_cash)
+        path = await asyncio.to_thread(
+            lambda: self._cached_path("tts", text, self._build_tts(text))
+        )
         try:
             vc = await self._ensure_connected()
             if vc is None:
@@ -334,15 +462,15 @@ class VoiceAnnouncer:
 
             # Cash-counting pre-roll (a short synthetic tick train) before
             # the spoken sentence: signals "money incoming" while gTTS is
-            # still synthesising, cutting perceived latency.
-            pre = os.path.join(tempfile.gettempdir(), f"mb_cash_{os.getpid()}.wav")
+            # still synthesising, cutting perceived latency.  Cached: built
+            # once (fixed seed -> identical audio), then reused from disk.
             try:
-                await asyncio.to_thread(synthesize_cash_sound, pre)
-                _play(discord.FFmpegPCMAudio(pre))
-                await done.wait()
-                if play_error:
-                    log.warning("voice pre-roll error: %s", play_error[0])
-                await asyncio.sleep(0.15)  # small gap before speech
+                if pre:
+                    _play(discord.FFmpegPCMAudio(pre))
+                    await done.wait()
+                    if play_error:
+                        log.warning("voice pre-roll error: %s", play_error[0])
+                    await asyncio.sleep(0.15)  # small gap before speech
             except Exception as error:
                 log.warning("voice pre-roll failed: %s", error)
 
@@ -364,6 +492,9 @@ class VoiceAnnouncer:
                     "voice channel %r has NO human listeners - nobody will hear the announcement",
                     vc.channel.name,
                 )
+            if not path:
+                log.warning("voice tts cache failed - nothing to play")
+                return
             _play(discord.FFmpegPCMAudio(path))
             await done.wait()
             if play_error:
@@ -371,11 +502,9 @@ class VoiceAnnouncer:
             else:
                 log.info("voice played x%s: latency=%s", text[:40], getattr(vc, "average_latency", "?"))
         finally:
-            for stale in (path,):
-                try:
-                    os.remove(stale)
-                except OSError:
-                    pass
+            # Cached files are shared across announces and process restarts;
+            # deleting them would defeat the cache.  Nothing to clean up.
+            pass
 
 
 import discord  # noqa: E402  (used only inside _speak)
